@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using WicStock_.Models;
+using WicStock_.Services;
 
 namespace WicStock_.Controllers
 {
@@ -11,10 +12,12 @@ namespace WicStock_.Controllers
     public class ActionRecommandeeController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly IAExplicationService _iaService;
 
-        public ActionRecommandeeController(AppDbContext context)
+        public ActionRecommandeeController(AppDbContext context, IAExplicationService iaService)
         {
             _context = context;
+            _iaService = iaService;
         }
 
         // GET: api/actionrecommandee
@@ -49,6 +52,30 @@ namespace WicStock_.Controllers
         [Authorize(Roles = "ADMIN")]
         public async Task<ActionResult<ActionRecommandee>> CreerAction(ActionRecommandee action)
         {
+            if (string.IsNullOrWhiteSpace(action.TexteGenere))
+            {
+                var prevision = await _context.PrevisionsEtatProduit
+                    .Include(p => p.Produit)
+                    .ThenInclude(p => p.Stock)
+                    .FirstOrDefaultAsync(p => p.Id == action.PrevisionEtatProduitId);
+
+                if (prevision != null && prevision.Produit != null && prevision.Produit.Stock != null)
+                {
+                    var explication = await _iaService.GenererExplication(
+                        nomProduit: prevision.Produit.Nom,
+                        typeRisque: prevision.TypeRisquePredit.ToString(),
+                        scoreRisque: prevision.ScoreRisque,
+                        quantiteActuelle: prevision.Produit.Stock.QuantiteActuelle,
+                        typeAction: action.TypeAction.ToString()
+                    );
+                    
+                    if (!string.IsNullOrEmpty(explication))
+                    {
+                        action.TexteGenere = explication;
+                    }
+                }
+            }
+
             _context.ActionsRecommandees.Add(action);
             await _context.SaveChangesAsync();
 

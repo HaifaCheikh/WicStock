@@ -15,6 +15,11 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<JwtService>();
 builder.Services.AddSingleton<PasswordResetService>();
 builder.Services.AddScoped<EmailService>();
+builder.Services.AddScoped<IAExplicationService>();
+
+// HttpClient pour l'IA
+builder.Services.AddHttpClient("WicStockIA", client =>
+    client.BaseAddress = new Uri("http://localhost:8001/"));
 
 // Authentification JWT
 var jwtKey = builder.Configuration["Jwt:Key"]!;

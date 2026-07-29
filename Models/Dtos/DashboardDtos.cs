@@ -12,6 +12,7 @@ namespace WicStock_.Models.Dtos
         public List<MonthlyRevenueDto> EvolutionRevenus { get; set; } = new();
         public List<TopProduitDto> TopProduitsVendus { get; set; } = new();
         public StatutCommandesDto StatutCommandes { get; set; } = new();
+        public List<ProduitSurstockDto> ProduitsEnSurstock { get; set; } = new();
     }
 
     public class ManagerDashboardDto
@@ -24,6 +25,7 @@ namespace WicStock_.Models.Dtos
 
         public List<ProduitStockAlerteDto> ProduitsAlerte { get; set; } = new();
         public List<MouvementRecentDto> MouvementsRecents { get; set; } = new();
+        public List<ProduitSurstockDto> ProduitsEnSurstock { get; set; } = new();
     }
 
     public class MonthlyRevenueDto
@@ -62,5 +64,14 @@ namespace WicStock_.Models.Dtos
         public string TypeMouvement { get; set; } = string.Empty;
         public int Quantite { get; set; }
         public DateTime DateMouvement { get; set; }
+    }
+
+    public class ProduitSurstockDto
+    {
+        public int Id { get; set; }
+        public string Nom { get; set; } = string.Empty;
+        public string Reference { get; set; } = string.Empty;
+        public int QuantiteActuelle { get; set; }
+        public int PourcentageSurstock { get; set; }
     }
 }

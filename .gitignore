@@ -1,5 +1,28 @@
-.vs/
+# Dossiers de build et binaires
 bin/
 obj/
+
+# Dossiers Visual Studio et outils de développement
+.vs/
+.vscode/
 *.user
 *.suo
+*.sln.docstates
+.idea/
+
+# Fichiers de configuration sensibles (mots de passe, clés JWT, BDD)
+appsettings.json
+appsettings.*.json
+secrets.json
+.env
+
+# Dossier d'environnement virtuel Python (s'il y a des scripts IA locaux)
+venv/
+.venv/
+__pycache__/
+
+# Logs et fichiers temporaires
+*.log
+*.tmp
+*.bak
+*.cache

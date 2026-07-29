@@ -72,13 +72,27 @@ namespace WicStock_.Controllers
                 .Take(5)
                 .ToList();
 
-            // Statut commandes
             var statuts = new StatutCommandesDto
             {
                 Acceptees = await _context.HistoriqueVentes.CountAsync(v => v.StatutCommande == "ACCEPTEE"),
                 EnAttente = await _context.HistoriqueVentes.CountAsync(v => v.StatutCommande == "EN_ATTENTE"),
                 Refusees = await _context.HistoriqueVentes.CountAsync(v => v.StatutCommande == "REFUSEE")
             };
+
+            var produitsSurstock = await _context.Stocks
+                .Include(s => s.Produit)
+                .Where(s => s.QuantiteActuelle >= 100)
+                .Select(s => new WicStock_.Models.Dtos.ProduitSurstockDto
+                {
+                    Id = s.ProduitId,
+                    Nom = s.Produit != null ? s.Produit.Nom : "Article",
+                    Reference = s.Produit != null ? s.Produit.Reference : "",
+                    QuantiteActuelle = s.QuantiteActuelle,
+                    PourcentageSurstock = (int)Math.Round(((double)s.QuantiteActuelle - 100) / 100 * 100)
+                })
+                .OrderByDescending(p => p.PourcentageSurstock)
+                .Take(5)
+                .ToListAsync();
 
             var dto = new AdminDashboardDto
             {
@@ -90,7 +104,8 @@ namespace WicStock_.Controllers
                 ProduitsEnRupture = produitsEnRupture,
                 EvolutionRevenus = evolution,
                 TopProduitsVendus = topProduits,
-                StatutCommandes = statuts
+                StatutCommandes = statuts,
+                ProduitsEnSurstock = produitsSurstock
             };
 
             return Ok(dto);
@@ -146,6 +161,21 @@ namespace WicStock_.Controllers
                 })
                 .ToListAsync();
 
+            var produitsSurstock = await _context.Stocks
+                .Include(s => s.Produit)
+                .Where(s => s.QuantiteActuelle >= 100)
+                .Select(s => new WicStock_.Models.Dtos.ProduitSurstockDto
+                {
+                    Id = s.ProduitId,
+                    Nom = s.Produit != null ? s.Produit.Nom : "Article",
+                    Reference = s.Produit != null ? s.Produit.Reference : "",
+                    QuantiteActuelle = s.QuantiteActuelle,
+                    PourcentageSurstock = (int)Math.Round(((double)s.QuantiteActuelle - 100) / 100 * 100)
+                })
+                .OrderByDescending(p => p.PourcentageSurstock)
+                .Take(5)
+                .ToListAsync();
+
             var dto = new ManagerDashboardDto
             {
                 TotalStockArticles = totalStockArticles,
@@ -154,7 +184,8 @@ namespace WicStock_.Controllers
                 RevenuSemaine = ventesSemaine,
                 CommandesEnAttenteCount = commandesEnAttenteCount,
                 ProduitsAlerte = produitsAlerteList,
-                MouvementsRecents = mouvementsRecents
+                MouvementsRecents = mouvementsRecents,
+                ProduitsEnSurstock = produitsSurstock
             };
 
             return Ok(dto);

@@ -25,6 +25,8 @@ namespace WicStock_.Controllers
         {
             return await _context.Produits
                 .Include(p => p.Stock)
+                .Include(p => p.Previsions)
+                    .ThenInclude(pr => pr.ActionRecommandee)
                 .ToListAsync();
         }
 
