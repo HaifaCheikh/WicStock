@@ -21,6 +21,12 @@ venv/
 .venv/
 __pycache__/
 
+# Migrations EF Core (générées automatiquement)
+Migrations/
+
+# Fichiers uploadés par les utilisateurs (images produits, etc.)
+wwwroot/uploads/
+
 # Logs et fichiers temporaires
 *.log
 *.tmp
