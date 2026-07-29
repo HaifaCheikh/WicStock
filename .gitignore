@@ -1,0 +1,22 @@
+# Dossiers de build et binaires
+bin/
+obj/
+
+# Dossiers Visual Studio
+.vs/
+.vscode/
+*.user
+*.suo
+.idea/
+
+# Fichiers de configuration sensibles
+appsettings.json
+appsettings.*.json
+secrets.json
+.env
+
+# Logs et fichiers temporaires
+*.log
+*.tmp
+*.bak
+*.cache

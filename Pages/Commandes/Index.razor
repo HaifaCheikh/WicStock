@@ -1,0 +1,929 @@
+@page "/commandes"
+@using WicStock.Web.Models.Dtos
+@using WicStock.Web.Services
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = "RESPONSABLE_STOCK_PRODUCTION")]
+@inject CatalogueService CatalogueService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+
+<PageTitle>Gestion des Commandes | WicStock</PageTitle>
+
+<div class="commandes-page">
+    <MudStack Spacing="4">
+
+        <!-- ===== EN-TÊTE ===== -->
+        <div class="page-header">
+            <div>
+                <div class="d-flex align-center gap-3">
+                    <MudText Typo="Typo.h4" Class="page-title">Gestion des Commandes Clients</MudText>
+                    @if (commandes != null)
+                    {
+                        <span class="count-badge">@FilteredCommandes.Count() commandes</span>
+                    }
+                </div>
+                <MudText Typo="Typo.body2" Class="mud-text-secondary mt-1">
+                    Validez, refusez et suivez en temps réel les demandes de commande passées par les enseignes
+                </MudText>
+            </div>
+        </div>
+
+        <!-- ===== BARRE DE MÉTRIQUES / STATISTIQUES ===== -->
+        <div class="metrics-grid">
+            <div class="metric-card @(statutFilter == "" ? "metric-card--active" : "")" @onclick='() => statutFilter = ""'>
+                <div class="metric-icon metric-icon--total">
+                    <MudIcon Icon="@Icons.Material.Filled.ReceiptLong" Size="Size.Medium" />
+                </div>
+                <div>
+                    <div class="metric-value">@CountTotal</div>
+                    <div class="metric-label">Toutes les commandes</div>
+                </div>
+            </div>
+
+            <div class="metric-card metric-card--warning @(statutFilter == "EN_ATTENTE" ? "metric-card--active" : "")" @onclick='() => statutFilter = "EN_ATTENTE"'>
+                <div class="metric-icon metric-icon--pending">
+                    <MudIcon Icon="@Icons.Material.Filled.HourglassTop" Size="Size.Medium" />
+                </div>
+                <div>
+                    <div class="metric-value">@CountEnAttente</div>
+                    <div class="metric-label">En attente de validation</div>
+                </div>
+                @if (CountEnAttente > 0)
+                {
+                    <span class="pulse-indicator"></span>
+                }
+            </div>
+
+            <div class="metric-card metric-card--success @(statutFilter == "ACCEPTEE" ? "metric-card--active" : "")" @onclick='() => statutFilter = "ACCEPTEE"'>
+                <div class="metric-icon metric-icon--accepted">
+                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Medium" />
+                </div>
+                <div>
+                    <div class="metric-value">@CountAcceptees</div>
+                    <div class="metric-label">Commandes acceptées</div>
+                </div>
+            </div>
+
+            <div class="metric-card metric-card--danger @(statutFilter == "REFUSEE" ? "metric-card--active" : "")" @onclick='() => statutFilter = "REFUSEE"'>
+                <div class="metric-icon metric-icon--rejected">
+                    <MudIcon Icon="@Icons.Material.Filled.Cancel" Size="Size.Medium" />
+                </div>
+                <div>
+                    <div class="metric-value">@CountRefusees</div>
+                    <div class="metric-label">Commandes refusées</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== BARRE D'OUTILS / FILTRES ===== -->
+        <div class="toolbar-panel">
+            <div class="d-flex flex-column flex-md-row justify-space-between align-center gap-4">
+                
+                <!-- Recherche -->
+                <div style="flex: 1; width: 100%;">
+                    <MudTextField @bind-Value="searchString"
+                                  Placeholder="Rechercher par client, email, produit ou référence..."
+                                  Adornment="Adornment.Start"
+                                  AdornmentIcon="@Icons.Material.Filled.Search"
+                                  IconSize="Size.Medium"
+                                  Variant="Variant.Outlined"
+                                  Clearable="true"
+                                  Class="search-input" />
+                </div>
+
+                <!-- Filtre de Statut & Basculeur de vue -->
+                <div class="d-flex align-center gap-3" style="width: 100%; justify-content: flex-end;">
+                    <MudMenu Label="@GetStatutFilterLabel()"
+                             EndIcon="@Icons.Material.Filled.KeyboardArrowDown"
+                             StartIcon="@Icons.Material.Filled.FilterList"
+                             Variant="Variant.Outlined"
+                             Color="Color.Default"
+                             Dense="true">
+                        <MudMenuItem OnClick='() => statutFilter = ""'>Toutes les commandes</MudMenuItem>
+                        <MudMenuItem OnClick='() => statutFilter = "EN_ATTENTE"'>En attente uniquement</MudMenuItem>
+                        <MudMenuItem OnClick='() => statutFilter = "ACCEPTEE"'>Acceptées uniquement</MudMenuItem>
+                        <MudMenuItem OnClick='() => statutFilter = "REFUSEE"'>Refusées uniquement</MudMenuItem>
+                    </MudMenu>
+
+                    <div class="view-toggle">
+                        <button class="view-toggle-btn @(!isGridView ? "active" : "")" @onclick="() => isGridView = false" title="Vue tableau">
+                            <MudIcon Icon="@Icons.Material.Filled.FormatListBulleted" Size="Size.Small" />
+                        </button>
+                        <button class="view-toggle-btn @(isGridView ? "active" : "")" @onclick="() => isGridView = true" title="Vue grille">
+                            <MudIcon Icon="@Icons.Material.Filled.GridView" Size="Size.Small" />
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- ===== CONTENU DES COMMANDES ===== -->
+        @if (isLoading)
+        {
+            <div class="d-flex justify-center my-12">
+                <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Large" />
+            </div>
+        }
+        else if (!FilteredCommandes.Any())
+        {
+            <div class="empty-state-card">
+                <div class="empty-icon-wrap">
+                    <MudIcon Icon="@Icons.Material.Filled.Inbox" Size="Size.Large" />
+                </div>
+                <MudText Typo="Typo.h6" Class="empty-title mt-3">Aucune commande trouvée</MudText>
+                <MudText Typo="Typo.body2" Class="empty-subtitle mt-1">
+                    Modifiez vos critères de recherche ou sélectionnez un autre filtre de statut.
+                </MudText>
+            </div>
+        }
+        else if (!isGridView)
+        {
+            <!-- VUE TABLEAU -->
+            <div class="table-panel">
+                <MudTable Items="@FilteredCommandes" Hover="true" Elevation="0" Class="orders-table">
+                    <HeaderContent>
+                        <MudTh>Client</MudTh>
+                        <MudTh>Produit</MudTh>
+                        <MudTh>Référence</MudTh>
+                        <MudTh>Date</MudTh>
+                        <MudTh>Quantité</MudTh>
+                        <MudTh>Prix Unitaire</MudTh>
+                        <MudTh>Total</MudTh>
+                        <MudTh>Statut</MudTh>
+                        <MudTh Style="text-align: right;">Actions</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Client">
+                            <div class="d-flex align-center gap-2">
+                                <div class="client-avatar">@GetInitiale(context.ClientNom)</div>
+                                <div>
+                                    <div class="client-name">@context.ClientNom</div>
+                                    <div class="client-email">@context.ClientEmail</div>
+                                </div>
+                            </div>
+                        </MudTd>
+                        <MudTd DataLabel="Produit" Class="cell-name">@context.ProduitNom</MudTd>
+                        <MudTd DataLabel="Référence">
+                            <span class="ref-code">@context.ProduitReference</span>
+                        </MudTd>
+                        <MudTd DataLabel="Date">@context.DateVente.ToString("dd MMM yyyy HH:mm")</MudTd>
+                        <MudTd DataLabel="Quantité" Style="font-weight: 600;">@context.QuantiteVendue</MudTd>
+                        <MudTd DataLabel="Prix Unitaire">@context.PrixUnitaire.ToString("0.00") DT</MudTd>
+                        <MudTd DataLabel="Total" Class="cell-total">@context.TotalCommande.ToString("0.00") DT</MudTd>
+                        <MudTd DataLabel="Statut">
+                            <span class="badge-statut @GetStatutCssClass(context.StatutCommande)">
+                                @GetStatutLabel(context.StatutCommande)
+                            </span>
+                        </MudTd>
+                        <MudTd DataLabel="Actions" Style="text-align: right;">
+                            <div class="d-flex justify-end gap-1">
+                                @if (context.StatutCommande == "EN_ATTENTE")
+                                {
+                                    <button class="action-btn-valider" @onclick="() => Accepter(context.Id)" title="Accepter la commande">
+                                        <MudIcon Icon="@Icons.Material.Filled.Check" Size="Size.Small" />
+                                        <span>Accepter</span>
+                                    </button>
+                                    <button class="action-btn-refuser" @onclick="() => DemanderRefus(context)" title="Refuser la commande">
+                                        <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Small" />
+                                        <span>Refuser</span>
+                                    </button>
+                                }
+                                else if (context.StatutCommande == "ACCEPTEE")
+                                {
+                                    <span style="font-size: 0.8125rem; font-weight: 700; color: #1E6B4C; display: inline-flex; align-items: center; gap: 4px;">
+                                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" /> Validée
+                                    </span>
+                                }
+                            </div>
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            </div>
+        }
+        else
+        {
+            <!-- VUE GRILLE (CARTES PREMIUM) -->
+            <div class="orders-grid">
+                @foreach (var cmd in FilteredCommandes)
+                {
+                    <div class="order-card @(cmd.StatutCommande == "EN_ATTENTE" ? "order-card--pending" : "")">
+                        <div class="order-card-header">
+                            <div class="d-flex align-center gap-2">
+                                <div class="client-avatar client-avatar--lg">@GetInitiale(cmd.ClientNom)</div>
+                                <div>
+                                    <div class="client-name">@cmd.ClientNom</div>
+                                    <div class="client-email">@cmd.ClientEmail</div>
+                                </div>
+                            </div>
+                            <span class="badge-statut @GetStatutCssClass(cmd.StatutCommande)">
+                                @GetStatutLabel(cmd.StatutCommande)
+                            </span>
+                        </div>
+
+                        <div class="order-card-body">
+                            <div class="product-info-box">
+                                <div class="d-flex justify-space-between align-center mb-1">
+                                    <span class="product-title">@cmd.ProduitNom</span>
+                                    <span class="ref-code">@cmd.ProduitReference</span>
+                                </div>
+                                <div class="order-date">Commandé le @cmd.DateVente.ToString("dd MMMM yyyy à HH:mm")</div>
+                            </div>
+
+                            <div class="order-math-grid mt-3">
+                                <div class="math-item">
+                                    <span class="math-label">Quantité</span>
+                                    <span class="math-value">@cmd.QuantiteVendue articles</span>
+                                </div>
+                                <div class="math-item">
+                                    <span class="math-label">Prix unitaire</span>
+                                    <span class="math-value">@cmd.PrixUnitaire.ToString("0.00") DT</span>
+                                </div>
+                                <div class="math-item math-item--total">
+                                    <span class="math-label">Total Commande</span>
+                                    <span class="math-value-total">@cmd.TotalCommande.ToString("0.00") DT</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="order-card-footer">
+                            @if (cmd.StatutCommande == "EN_ATTENTE")
+                            {
+                                <button class="btn-card-action btn-card-valider" @onclick="() => Accepter(cmd.Id)">
+                                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" />
+                                    <span>Valider la commande</span>
+                                </button>
+                                <button class="btn-card-action btn-card-refuser" @onclick="() => DemanderRefus(cmd)">
+                                    <MudIcon Icon="@Icons.Material.Filled.Cancel" Size="Size.Small" />
+                                    <span>Refuser</span>
+                                </button>
+                            }
+                            else if (cmd.StatutCommande == "ACCEPTEE")
+                            {
+                                <div class="status-summary-text text-success" style="font-weight: 700; color: #1E6B4C;">
+                                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Class="mr-1" />
+                                    Commande validée (Stock mis à jour)
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+    </MudStack>
+</div>
+
+<!-- ===== MODAL CONFIRMATION REFUS COMMANDE ===== -->
+@if (commandeARefuser != null)
+{
+    <div class="dialog-overlay" @onclick="FermerRefus">
+        <div class="dialog-card dialog-card--sm" @onclick:stopPropagation="true">
+            <div class="dialog-header">
+                <div>
+                    <div class="dialog-title" style="color: #B5563A;">Refuser la commande ?</div>
+                    <div class="dialog-subtitle">Cette commande sera supprimée définitivement.</div>
+                </div>
+                <button class="dialog-close" @onclick="FermerRefus">
+                    <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Small" />
+                </button>
+            </div>
+            <div class="dialog-body">
+                <div class="annulation-recap" style="background:#F8FAFC; border:1px solid #E1E7EF; border-radius:8px; padding:12px;">
+                    <div class="d-flex justify-space-between mb-2">
+                        <span style="color:#64748B; font-size:0.8125rem;">Client :</span>
+                        <strong style="color:#16233A;">@commandeARefuser.ClientNom</strong>
+                    </div>
+                    <div class="d-flex justify-space-between mb-2">
+                        <span style="color:#64748B; font-size:0.8125rem;">Article :</span>
+                        <strong style="color:#16233A;">@commandeARefuser.ProduitNom</strong>
+                    </div>
+                    <div class="d-flex justify-space-between mb-2">
+                        <span style="color:#64748B; font-size:0.8125rem;">Quantité :</span>
+                        <strong style="color:#16233A;">@commandeARefuser.QuantiteVendue articles</strong>
+                    </div>
+                    <div class="d-flex justify-space-between">
+                        <span style="color:#64748B; font-size:0.8125rem;">Total :</span>
+                        <strong style="color:#2B4C7E;">@commandeARefuser.TotalCommande.ToString("0.00") DT</strong>
+                    </div>
+                </div>
+                <p class="mt-3 mb-0" style="font-size:0.875rem; color:#64748B;">Voulez-vous vraiment refuser et supprimer cette commande ?</p>
+            </div>
+            <div class="dialog-footer d-flex justify-end gap-2">
+                <button class="btn btn--outline" @onclick="FermerRefus">Conserver</button>
+                <button class="action-btn-refuser" style="background:#B5563A; color:#fff; padding:8px 16px; border-radius:6px; font-weight:700;" @onclick="ConfirmerRefus">
+                    <MudIcon Icon="@Icons.Material.Filled.Delete" Size="Size.Small" />
+                    <span>Oui, refuser et supprimer</span>
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .commandes-page {
+        --ink: #16233A;
+        --ink-muted: #64748B;
+        --paper: #FFFFFF;
+        --sand: #F3F6FA;
+        --border: #E1E7EF;
+        --denim: #2B4C7E;
+        --denim-dark: #14263F;
+        --denim-tint: #E7EDF6;
+        --pine: #1E6B4C;
+        --pine-tint: #E4F3EC;
+        --rust: #B5563A;
+        --rust-tint: #F9ECE8;
+        --amber: #D97706;
+        --amber-tint: #FEF3C7;
+        --radius-sm: 6px;
+        --radius-md: 10px;
+        --radius-lg: 14px;
+        --font-display: "Sora", "Inter", sans-serif;
+        --font-body: "Inter", sans-serif;
+        --font-mono: "JetBrains Mono", monospace;
+        font-family: var(--font-body);
+        color: var(--ink);
+    }
+
+    .page-title {
+        font-family: var(--font-display);
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: var(--ink);
+    }
+
+    .count-badge {
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        font-weight: 600;
+        background: var(--denim-tint);
+        color: var(--denim);
+        padding: 4px 10px;
+        border-radius: 999px;
+    }
+
+    /* ===== Métriques Grid ===== */
+    .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 16px;
+    }
+
+    .metric-card {
+        background: var(--paper);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        padding: 16px 20px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        position: relative;
+    }
+
+    .metric-card:hover {
+        border-color: var(--denim);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(22, 35, 58, 0.06);
+    }
+
+    .metric-card--active {
+        border-color: var(--denim);
+        background: var(--denim-tint);
+    }
+
+    .metric-icon {
+        width: 44px;
+        height: 44px;
+        border-radius: var(--radius-sm);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .metric-icon--total { background: var(--sand); color: var(--ink); }
+    .metric-icon--pending { background: var(--amber-tint); color: var(--amber); }
+    .metric-icon--accepted { background: var(--pine-tint); color: var(--pine); }
+    .metric-icon--rejected { background: var(--rust-tint); color: var(--rust); }
+
+    .metric-value {
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 1.5rem;
+        line-height: 1.2;
+        color: var(--ink);
+    }
+
+    .metric-label {
+        font-size: 0.8125rem;
+        color: var(--ink-muted);
+        font-weight: 500;
+    }
+
+    .pulse-indicator {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--amber);
+        box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.4);
+        animation: pulse-ring 1.8s infinite;
+    }
+
+    @@keyframes pulse-ring {
+        0% { box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.6); }
+        70% { box-shadow: 0 0 0 8px rgba(217, 119, 6, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(217, 119, 6, 0); }
+    }
+
+    /* ===== Toolbar ===== */
+    .toolbar-panel {
+        background: var(--paper);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        padding: 16px;
+    }
+
+    .search-input .mud-input-outlined-border {
+        border-color: var(--border) !important;
+        border-radius: var(--radius-sm) !important;
+    }
+
+    .view-toggle {
+        display: flex;
+        background: var(--sand);
+        padding: 3px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border);
+    }
+
+    .view-toggle-btn {
+        border: none;
+        background: transparent;
+        color: var(--ink-muted);
+        padding: 6px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.15s ease;
+    }
+
+    .view-toggle-btn.active {
+        background: var(--paper);
+        color: var(--denim);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    /* ===== Table ===== */
+    .table-panel {
+        background: var(--paper);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+    }
+
+    .orders-table .mud-table-head th {
+        font-family: var(--font-body);
+        font-weight: 700;
+        color: var(--ink-muted);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        background: var(--sand);
+    }
+
+    .client-avatar {
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        background: var(--denim);
+        color: #fff;
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 0.8125rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+
+    .client-avatar--lg {
+        width: 40px;
+        height: 40px;
+        font-size: 0.9375rem;
+    }
+
+    .client-name {
+        font-family: var(--font-display);
+        font-weight: 600;
+        font-size: 0.875rem;
+        color: var(--ink);
+    }
+
+    .client-email {
+        font-size: 0.75rem;
+        color: var(--ink-muted);
+    }
+
+    .cell-name {
+        font-family: var(--font-display);
+        font-weight: 600;
+    }
+
+    .ref-code {
+        font-family: var(--font-mono);
+        font-weight: 600;
+        font-size: 0.75rem;
+        color: var(--denim);
+        background: var(--denim-tint);
+        padding: 3px 8px;
+        border-radius: 6px;
+    }
+
+    .cell-total {
+        font-family: var(--font-display);
+        font-weight: 700;
+        color: var(--denim);
+    }
+
+    .badge-statut {
+        font-size: 0.75rem;
+        font-weight: 700;
+        padding: 4px 10px;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+    }
+
+    .badge-statut--accepted { background: var(--pine-tint); color: var(--pine); }
+    .badge-statut--pending { background: var(--amber-tint); color: var(--amber); }
+    .badge-statut--rejected { background: var(--rust-tint); color: var(--rust); }
+
+    .action-btn-valider {
+        background: var(--pine-tint);
+        color: var(--pine);
+        border: 1px solid rgba(30, 107, 76, 0.2);
+        padding: 6px 12px;
+        border-radius: var(--radius-sm);
+        font-weight: 600;
+        font-size: 0.8125rem;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        transition: all 0.2s ease;
+    }
+
+    .action-btn-valider:hover {
+        background: var(--pine);
+        color: #fff;
+    }
+
+    .action-btn-refuser {
+        background: var(--rust-tint);
+        color: var(--rust);
+        border: 1px solid rgba(181, 86, 58, 0.2);
+        padding: 6px 12px;
+        border-radius: var(--radius-sm);
+        font-weight: 600;
+        font-size: 0.8125rem;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        transition: all 0.2s ease;
+    }
+
+    .action-btn-refuser:hover {
+        background: var(--rust);
+        color: #fff;
+    }
+
+    .btn-sm {
+        padding: 4px 8px;
+        font-size: 0.75rem;
+    }
+
+    /* ===== Cards Grid ===== */
+    .orders-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+        gap: 20px;
+    }
+
+    .order-card {
+        background: var(--paper);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        transition: all 0.2s ease;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+    }
+
+    .order-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px rgba(22,35,58,0.08);
+    }
+
+    .order-card--pending {
+        border-color: rgba(217, 119, 6, 0.4);
+    }
+
+    .order-card-header {
+        padding: 16px 20px;
+        background: var(--sand);
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .order-card-body {
+        padding: 20px;
+        flex: 1;
+    }
+
+    .product-info-box {
+        background: #F8FAFC;
+        border-radius: var(--radius-sm);
+        padding: 12px;
+        border: 1px solid var(--border);
+    }
+
+    .product-title {
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 0.9375rem;
+        color: var(--ink);
+    }
+
+    .order-date {
+        font-size: 0.75rem;
+        color: var(--ink-muted);
+    }
+
+    .order-math-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+    }
+
+    .math-item {
+        background: var(--sand);
+        padding: 10px 12px;
+        border-radius: var(--radius-sm);
+        display: flex;
+        flex-direction: column;
+    }
+
+    .math-item--total {
+        grid-column: span 2;
+        background: var(--denim-tint);
+    }
+
+    .math-label {
+        font-size: 0.6875rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: var(--ink-muted);
+    }
+
+    .math-value {
+        font-family: var(--font-display);
+        font-weight: 600;
+        font-size: 0.875rem;
+        color: var(--ink);
+    }
+
+    .math-value-total {
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 1.125rem;
+        color: var(--denim);
+    }
+
+    .order-card-footer {
+        padding: 16px 20px;
+        border-top: 1px solid var(--border);
+        background: var(--paper);
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .btn-card-action {
+        flex: 1;
+        padding: 10px 14px;
+        border-radius: var(--radius-sm);
+        font-weight: 700;
+        font-size: 0.875rem;
+        border: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        transition: all 0.2s ease;
+    }
+
+    .btn-card-valider {
+        background: var(--pine);
+        color: #fff;
+    }
+
+    .btn-card-valider:hover {
+        background: #154D36;
+        box-shadow: 0 4px 12px rgba(30, 107, 76, 0.3);
+    }
+
+    .btn-card-refuser {
+        background: var(--rust-tint);
+        color: var(--rust);
+        border: 1px solid rgba(181, 86, 58, 0.2);
+    }
+
+    .btn-card-refuser:hover {
+        background: var(--rust);
+        color: #fff;
+    }
+
+    .status-summary-text {
+        font-size: 0.8125rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+    }
+
+    /* ===== Empty State ===== */
+    .empty-state-card {
+        background: var(--paper);
+        border: 1px dashed var(--border);
+        border-radius: var(--radius-lg);
+        padding: 60px 20px;
+        text-align: center;
+    }
+
+    .empty-icon-wrap {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        background: var(--sand);
+        color: var(--ink-muted);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto;
+    }
+
+    .empty-title {
+        font-family: var(--font-display);
+        font-weight: 700;
+        color: var(--ink);
+    }
+
+    .empty-subtitle {
+        color: var(--ink-muted);
+    }
+</style>
+
+@code {
+    private List<CommandeManagerDto>? commandes;
+    private bool isLoading = true;
+    private string searchString = "";
+    private string statutFilter = "";
+    private bool isGridView = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ChargerCommandes();
+    }
+
+    private async Task ChargerCommandes()
+    {
+        isLoading = true;
+        try
+        {
+            commandes = await CatalogueService.ObtenirToutesLesCommandes();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Erreur de chargement des commandes: {ex.Message}", Severity.Error);
+            commandes = new List<CommandeManagerDto>();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private IEnumerable<CommandeManagerDto> FilteredCommandes
+    {
+        get
+        {
+            if (commandes == null) return Enumerable.Empty<CommandeManagerDto>();
+
+            var list = commandes.AsEnumerable();
+
+            if (!string.IsNullOrWhiteSpace(statutFilter))
+            {
+                list = list.Where(c => c.StatutCommande.Equals(statutFilter, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (!string.IsNullOrWhiteSpace(searchString))
+            {
+                var s = searchString.Trim();
+                list = list.Where(c =>
+                    (c.ClientNom?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (c.ClientEmail?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (c.ProduitNom?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (c.ProduitReference?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false)
+                );
+            }
+
+            return list;
+        }
+    }
+
+    private int CountTotal => commandes?.Count ?? 0;
+    private int CountEnAttente => commandes?.Count(c => c.StatutCommande == "EN_ATTENTE") ?? 0;
+    private int CountAcceptees => commandes?.Count(c => c.StatutCommande == "ACCEPTEE") ?? 0;
+    private int CountRefusees => commandes?.Count(c => c.StatutCommande == "REFUSEE") ?? 0;
+
+    private async Task Accepter(int id)
+    {
+        var succes = await CatalogueService.AccepterCommande(id);
+        if (succes)
+        {
+            Snackbar.Add("Commande acceptée avec succès ! Le stock a été mis à jour.", Severity.Success);
+            await ChargerCommandes();
+        }
+        else
+        {
+            Snackbar.Add("Impossible d'accepter la commande.", Severity.Error);
+        }
+    }
+
+    private CommandeManagerDto? commandeARefuser;
+
+    private void DemanderRefus(CommandeManagerDto cmd) => commandeARefuser = cmd;
+    private void FermerRefus() => commandeARefuser = null;
+
+    private async Task ConfirmerRefus()
+    {
+        if (commandeARefuser == null) return;
+        
+        var id = commandeARefuser.Id;
+        FermerRefus();
+        
+        var succes = await CatalogueService.RefuserCommande(id);
+        if (succes)
+        {
+            Snackbar.Add("Commande refusée et supprimée avec succès.", Severity.Info);
+            await ChargerCommandes();
+        }
+        else
+        {
+            Snackbar.Add("Impossible de refuser la commande.", Severity.Error);
+        }
+    }
+
+    private string GetStatutFilterLabel() => statutFilter switch
+    {
+        "EN_ATTENTE" => "En attente uniquement",
+        "ACCEPTEE" => "Acceptées uniquement",
+        "REFUSEE" => "Refusées uniquement",
+        _ => "Toutes les commandes"
+    };
+
+    private string GetStatutCssClass(string? statut) => statut switch
+    {
+        "ACCEPTEE" => "badge-statut--accepted",
+        "REFUSEE" => "badge-statut--rejected",
+        _ => "badge-statut--pending"
+    };
+
+    private string GetStatutLabel(string? statut) => statut switch
+    {
+        "ACCEPTEE" => "Acceptée",
+        "REFUSEE" => "Refusée",
+        _ => "En attente"
+    };
+
+    private string GetInitiale(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "C";
+        var parts = name.Trim().Split(' ');
+        if (parts.Length >= 2)
+            return $"{parts[0][0]}{parts[1][0]}".ToUpper();
+        return name[0].ToString().ToUpper();
+    }
+}

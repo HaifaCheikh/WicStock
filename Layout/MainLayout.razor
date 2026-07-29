@@ -1,0 +1,41 @@
+@inherits LayoutComponentBase
+
+<MudThemeProvider Theme="_theme" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudDrawer Open="true" ClipMode="DrawerClipMode.Never" Elevation="0" Width="220px">
+        <NavMenu />
+    </MudDrawer>
+    
+    <MudMainContent Style="background-color: #f8fafc; min-height: 100vh;">
+        <MudContainer MaxWidth="MaxWidth.Large" Class="my-6">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    private MudTheme _theme = new MudTheme()
+    {
+        PaletteLight = new PaletteLight()
+        {
+            Primary = "#2B4C7E",           // Denim principal
+            Secondary = "#16233A",          // Ink dark
+            AppbarBackground = "#ffffff",
+            Background = "#f8fafc",
+            DrawerBackground = "#ffffff",
+            TextPrimary = "#16233A",
+            TextSecondary = "#64748B",
+            Surface = "#ffffff",
+            ActionDefault = "#64748B",
+            Success = "#10b981",
+            Error = "#ef4444",
+            Info = "#0ea5e9",
+            Warning = "#f59e0b"
+        }
+    };
+}
+

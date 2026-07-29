@@ -1,0 +1,979 @@
+@page "/produits"
+@using WicStock.Web.Models.Dtos
+@using WicStock.Web.Services
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = "RESPONSABLE_STOCK_PRODUCTION,ADMIN")]
+@inject ProduitService ProduitService
+@inject CatalogueService CatalogueService
+@inject NavigationManager Navigation
+@inject HttpClient Http
+@inject ISnackbar Snackbar
+
+<HeadContent>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+</HeadContent>
+
+<div class="produits-page">
+    <MudStack Spacing="6">
+        <!-- En-tête principal -->
+        <div class="d-flex justify-space-between align-center flex-wrap gap-4">
+            <div>
+                <div class="d-flex align-center gap-3">
+                    <MudText Typo="Typo.h4" Class="page-title">Catalogue des produits</MudText>
+                    @if (produits != null)
+                    {
+                        <span class="count-badge">@FilteredProduits.Count() articles</span>
+                    }
+                </div>
+                <MudText Typo="Typo.body2" Class="mud-text-secondary mt-1">
+                    Gérez vos références et consultez les recommandations d'analyse IA en temps réel
+                </MudText>
+            </div>
+
+            <div class="d-flex align-center gap-3">
+                <div class="view-toggle">
+                    <button class="view-toggle-btn @(isGridView ? "active" : "")" @onclick="() => isGridView = true" aria-label="Vue grille">
+                        <MudIcon Icon="@Icons.Material.Filled.GridView" Size="Size.Small" />
+                    </button>
+                    <button class="view-toggle-btn @(!isGridView ? "active" : "")" @onclick="() => isGridView = false" aria-label="Vue tableau">
+                        <MudIcon Icon="@Icons.Material.Filled.FormatListBulleted" Size="Size.Small" />
+                    </button>
+                </div>
+
+                <!-- Bouton Commandes Clients avec badge -->
+                <AuthorizeView Roles="RESPONSABLE_STOCK_PRODUCTION">
+                    <Authorized>
+                        <button class="btn btn--outline" @onclick='() => Navigation.NavigateTo("/commandes")'>
+                            <MudIcon Icon="@Icons.Material.Filled.ShoppingCart" Size="Size.Small" />
+                            <span>Commandes clients</span>
+                            @if (NombreCommandesEnAttente > 0)
+                            {
+                                <span class="order-notif-badge">@NombreCommandesEnAttente</span>
+                            }
+                        </button>
+                    </Authorized>
+                </AuthorizeView>
+
+                <AuthorizeView Roles="RESPONSABLE_STOCK_PRODUCTION,ADMIN">
+                    <Authorized>
+                        <button class="btn btn--primary" @onclick="AllerVersCreation">
+                            <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+                            <span>Nouveau produit</span>
+                        </button>
+                    </Authorized>
+                </AuthorizeView>
+            </div>
+        </div>
+
+        <!-- Barre de recherche, filtres Statut IA et tri intelligent -->
+        <div class="filter-panel">
+            <div class="d-flex flex-column gap-3">
+                <div class="d-flex flex-column flex-md-row justify-space-between align-center gap-3">
+                    <div style="flex: 1; width: 100%;">
+                        <MudTextField @bind-Value="searchString"
+                                      Placeholder="Rechercher par référence, nom, type..."
+                                      Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Filled.Search"
+                                      IconSize="Size.Medium"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense"
+                                      Clearable="true"
+                                      Immediate="true"
+                                      Class="search-field" />
+                    </div>
+
+                    <div class="d-flex align-center gap-2 flex-wrap" style="width: 100%; max-width: fit-content;">
+                        <!-- Menu Filtre Statut IA -->
+                        <MudMenu EndIcon="@Icons.Material.Filled.KeyboardArrowDown"
+                                 StartIcon="@Icons.Material.Filled.AutoAwesome"
+                                 Label="@GetStatutIaFilterLabel()"
+                                 Variant="Variant.Outlined"
+                                 Color="@(string.IsNullOrEmpty(statutIaFilter) ? Color.Default : Color.Primary)"
+                                 Style="border-radius: 10px; font-weight: 600; text-transform: none; height: 40px;"
+                                 AnchorOrigin="Origin.BottomRight"
+                                 TransformOrigin="Origin.TopRight">
+                            <MudMenuItem OnClick='() => statutIaFilter = ""'>
+                                <div class="d-flex align-center gap-2">
+                                    <MudIcon Icon="@Icons.Material.Filled.Apps" Size="Size.Small" Style="color: #2B4C7E;" />
+                                    <span style="@(string.IsNullOrEmpty(statutIaFilter) ? "font-weight:700; color:#2B4C7E;" : "font-weight:500;")">Tous les statuts IA</span>
+                                </div>
+                            </MudMenuItem>
+                            <MudDivider />
+                            <MudMenuItem OnClick='() => statutIaFilter = "RUPTURE"'>
+                                <div class="d-flex align-center gap-2">
+                                    <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background-color:#DC2626;"></span>
+                                    <span style="@(statutIaFilter == "RUPTURE" ? "font-weight:700; color:#DC2626;" : "font-weight:500;")">🔴 Ruptures & prévues</span>
+                                </div>
+                            </MudMenuItem>
+                            <MudMenuItem OnClick='() => statutIaFilter = "SURSTOCK"'>
+                                <div class="d-flex align-center gap-2">
+                                    <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background-color:#EA580C;"></span>
+                                    <span style="@(statutIaFilter == "SURSTOCK" ? "font-weight:700; color:#EA580C;" : "font-weight:500;")">🟠 Surstock</span>
+                                </div>
+                            </MudMenuItem>
+                            <MudMenuItem OnClick='() => statutIaFilter = "OPTIMAL"'>
+                                <div class="d-flex align-center gap-2">
+                                    <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background-color:#16A34A;"></span>
+                                    <span style="@(statutIaFilter == "OPTIMAL" ? "font-weight:700; color:#16A34A;" : "font-weight:500;")">🟢 Stock optimal</span>
+                                </div>
+                            </MudMenuItem>
+                        </MudMenu>
+
+                        <!-- Menu Filtrer par catégorie -->
+                        <MudMenu EndIcon="@Icons.Material.Filled.KeyboardArrowDown"
+                                 StartIcon="@Icons.Material.Filled.FilterList"
+                                 Label="@(string.IsNullOrEmpty(categoryFilter) ? "Toutes les catégories" : categoryFilter)"
+                                 Variant="Variant.Outlined"
+                                 Color="@(string.IsNullOrEmpty(categoryFilter) ? Color.Default : Color.Primary)"
+                                 Style="border-radius: 10px; font-weight: 600; text-transform: none; height: 40px;"
+                                 AnchorOrigin="Origin.BottomRight"
+                                 TransformOrigin="Origin.TopRight">
+                            <MudMenuItem OnClick='() => categoryFilter = ""'>
+                                <div class="d-flex align-center gap-2">
+                                    <MudIcon Icon="@Icons.Material.Filled.Apps" Size="Size.Small" Style="color: #2B4C7E;" />
+                                    <span style="@(string.IsNullOrEmpty(categoryFilter) ? "font-weight:700; color:#2B4C7E;" : "font-weight:500;")">Toutes les catégories</span>
+                                </div>
+                            </MudMenuItem>
+                            <MudDivider />
+                            @foreach (var cat in CategoriesDisponibles)
+                            {
+                                var isSelected = categoryFilter == cat;
+                                <MudMenuItem OnClick="() => categoryFilter = cat">
+                                    <div class="d-flex align-center gap-2">
+                                        <span style="width: 8px; height: 8px; border-radius: 50%; display: inline-block; background-color: @GetCategoryColor(cat);"></span>
+                                        <span style="@(isSelected ? "font-weight:700; color:#2B4C7E;" : "font-weight:500;")">@cat</span>
+                                    </div>
+                                </MudMenuItem>
+                            }
+                        </MudMenu>
+
+                        <!-- Menu Trier par -->
+                        <MudMenu EndIcon="@Icons.Material.Filled.KeyboardArrowDown"
+                                 StartIcon="@Icons.Material.Filled.Sort"
+                                 Label="@GetSortLabel()"
+                                 Variant="Variant.Outlined"
+                                 Style="border-radius: 10px; font-weight: 600; text-transform: none; height: 40px;"
+                                 AnchorOrigin="Origin.BottomRight"
+                                 TransformOrigin="Origin.TopRight">
+                            <MudMenuItem OnClick='() => sortBy = "STATUT_IA"'>
+                                <div class="d-flex align-center gap-2">
+                                    <MudIcon Icon="@Icons.Material.Filled.PriorityHigh" Size="Size.Small" Style="color: #DC2626;" />
+                                    <span style="@(sortBy == "STATUT_IA" ? "font-weight:700; color:#2B4C7E;" : "font-weight:500;")">Statut IA (Priorité)</span>
+                                </div>
+                            </MudMenuItem>
+                            <MudMenuItem OnClick='() => sortBy = "NOM"'>
+                                <div class="d-flex align-center gap-2">
+                                    <MudIcon Icon="@Icons.Material.Filled.SortByAlpha" Size="Size.Small" />
+                                    <span style="@(sortBy == "NOM" ? "font-weight:700; color:#2B4C7E;" : "font-weight:500;")">Nom (A-Z)</span>
+                                </div>
+                            </MudMenuItem>
+                            <MudMenuItem OnClick='() => sortBy = "STOCK_ASC"'>
+                                <div class="d-flex align-center gap-2">
+                                    <MudIcon Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" />
+                                    <span style="@(sortBy == "STOCK_ASC" ? "font-weight:700; color:#2B4C7E;" : "font-weight:500;")">Stock (Croissant)</span>
+                                </div>
+                            </MudMenuItem>
+                            <MudMenuItem OnClick='() => sortBy = "STOCK_DESC"'>
+                                <div class="d-flex align-center gap-2">
+                                    <MudIcon Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" />
+                                    <span style="@(sortBy == "STOCK_DESC" ? "font-weight:700; color:#2B4C7E;" : "font-weight:500;")">Stock (Décroissant)</span>
+                                </div>
+                            </MudMenuItem>
+                        </MudMenu>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contenu des produits -->
+        @if (produits == null)
+        {
+            <MudGrid Spacing="3">
+                @for (int i = 0; i < 8; i++)
+                {
+                    <MudItem xs="12" sm="6" md="4" lg="3">
+                        <div class="skeleton-card">
+                            <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="180px" Class="skeleton-image" />
+                            <div class="pa-4">
+                                <MudSkeleton Width="70%" Height="20px" Class="mb-2" />
+                                <MudSkeleton Width="45%" Height="16px" />
+                            </div>
+                        </div>
+                    </MudItem>
+                }
+            </MudGrid>
+        }
+        else if (!FilteredProduits.Any())
+        {
+            <div class="empty-state">
+                <div class="empty-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.SearchOff" Style="font-size: 2.5rem;" />
+                </div>
+                <MudText Typo="Typo.h6" Class="empty-title">Aucun produit ne correspond à vos filtres</MudText>
+                <MudText Typo="Typo.body2" Class="empty-subtitle mt-1">
+                    Essayez de réinitialiser la recherche ou de changer les critères de filtrage IA.
+                </MudText>
+            </div>
+        }
+        else if (isGridView)
+        {
+            <MudGrid Spacing="3">
+                @foreach (var prod in FilteredProduits)
+                {
+                    <MudItem xs="12" sm="6" md="4" lg="3">
+                        <div class="product-card">
+                            <div class="swatch-strip" style="background:@GetCategoryColor(prod.Categorie)"></div>
+
+                            <div class="product-image">
+                                @if (!string.IsNullOrEmpty(prod.ImageUrl))
+                                {
+                                    <img src="@GetFullImageUrl(prod.ImageUrl)" alt="@prod.Nom" class="card-img" />
+                                }
+                                else
+                                {
+                                    <div class="d-flex flex-column align-center justify-center h-100">
+                                        <MudIcon Icon="@Icons.Material.Filled.Layers" Style="font-size: 2.75rem; opacity: 0.35;" />
+                                        <MudText Typo="Typo.caption" Class="mt-1" Style="opacity: 0.55;">Aucune image</MudText>
+                                    </div>
+                                }
+
+                                <div class="badge-ref">@prod.Reference</div>
+
+                                <!-- Badge Statut IA sur l'image -->
+                                <div class="badge-ia-overlay">
+                                    <MudTooltip Text="@prod.StatutIAActionTexte" Placement="Placement.Top" Arrow="true">
+                                        <span class="ia-badge ia-badge--@prod.StatutIAType.ToLower()">
+                                            @prod.StatutIABadgeText
+                                        </span>
+                                    </MudTooltip>
+                                </div>
+                            </div>
+
+                            <div class="product-body">
+                                <div>
+                                    <MudText Typo="Typo.h6" Class="product-name">@prod.Nom</MudText>
+                                    <div class="d-flex align-center justify-space-between mt-2">
+                                        <div class="d-flex align-center gap-1">
+                                            <MudIcon Icon="@Icons.Material.Filled.Texture" Size="Size.Small" Class="text-muted" />
+                                            <MudText Typo="Typo.body2" Class="product-detail">
+                                                @(string.IsNullOrEmpty(prod.TypeTissu) ? "Non spécifié" : prod.TypeTissu)
+                                            </MudText>
+                                        </div>
+                                        <span style="font-family: var(--font-display); font-weight: 700; color: var(--denim);">@prod.PrixUnitaire.ToString("0.00") DT</span>
+                                    </div>
+                                </div>
+
+                                <!-- Action Recommandée IA -->
+                                @if (!string.IsNullOrEmpty(prod.StatutIAActionTexte))
+                                {
+                                    <div class="ia-action-pill mt-1">
+                                        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Size="Size.Small" Class="ia-pill-icon" />
+                                        <span class="ia-pill-text">@prod.StatutIAActionTexte</span>
+                                    </div>
+                                }
+
+                                <div class="product-footer">
+                                    <div class="d-flex align-center gap-2 flex-wrap">
+                                        @if (!string.IsNullOrEmpty(prod.Categorie))
+                                        {
+                                            <span class="table-cat-tag" style="background:@GetCategoryColor(prod.Categorie)">@prod.Categorie</span>
+                                        }
+                                        <span class="stock-qty-badge @((prod.Stock?.QuantiteActuelle ?? 0) > 0 ? "stock-qty-ok" : "stock-qty-zero")">
+                                            Stock : @(prod.Stock?.QuantiteActuelle ?? 0)
+                                        </span>
+                                    </div>
+
+                                    <AuthorizeView Roles="RESPONSABLE_STOCK_PRODUCTION,ADMIN" Context="authContext">
+                                        <Authorized>
+                                            <div class="d-flex align-center gap-1" @onclick:stopPropagation="true">
+                                                <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                                               Size="Size.Small"
+                                                               Class="action-btn"
+                                                               href="@($"/produits/modifier/{prod.Id}")" />
+                                                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                               Size="Size.Small"
+                                                               Class="action-btn action-btn--danger"
+                                                               OnClick="() => Supprimer(prod.Id)" />
+                                            </div>
+                                        </Authorized>
+                                    </AuthorizeView>
+                                </div>
+                            </div>
+                        </div>
+                    </MudItem>
+                }
+            </MudGrid>
+        }
+        else
+        {
+            <div class="table-panel">
+                <MudTable Items="@FilteredProduits" Hover="true" Elevation="0" Class="products-table">
+                    <HeaderContent>
+                        <MudTh Style="width: 64px;">Image</MudTh>
+                        <MudTh>Référence</MudTh>
+                        <MudTh>Nom</MudTh>
+                        <MudTh>Type</MudTh>
+                        <MudTh>Catégorie</MudTh>
+                        <MudTh>Stock disponible</MudTh>
+                        <MudTh>Statut IA & Recommandation</MudTh>
+                        <MudTh>Cycle de vie</MudTh>
+                        <AuthorizeView Roles="RESPONSABLE_STOCK_PRODUCTION,ADMIN">
+                            <Authorized>
+                                <MudTh Style="text-align: right;">Actions</MudTh>
+                            </Authorized>
+                        </AuthorizeView>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Image">
+                            @if (!string.IsNullOrEmpty(context.ImageUrl))
+                            {
+                                <MudImage Src="@GetFullImageUrl(context.ImageUrl)" Width="40" Height="40" Alt="@context.Nom" Class="table-thumb" />
+                            }
+                            else
+                            {
+                                <div class="table-thumb table-thumb--empty">
+                                    <MudIcon Icon="@Icons.Material.Filled.Layers" Size="Size.Small" Style="opacity:0.4;" />
+                                </div>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Référence">
+                            <span class="ref-code">@context.Reference</span>
+                        </MudTd>
+                        <MudTd DataLabel="Nom" Class="cell-name">@context.Nom</MudTd>
+                        <MudTd DataLabel="Type">@context.TypeTissu</MudTd>
+                        <MudTd DataLabel="Catégorie">
+                            <span class="table-cat-tag" style="background:@GetCategoryColor(context.Categorie)">@context.Categorie</span>
+                        </MudTd>
+                        <MudTd DataLabel="Stock disponible">
+                            <span class="stock-qty-badge @((context.Stock?.QuantiteActuelle ?? 0) > 0 ? "stock-qty-ok" : "stock-qty-zero")">
+                                @(context.Stock?.QuantiteActuelle ?? 0)
+                            </span>
+                        </MudTd>
+                        <MudTd DataLabel="Statut IA & Recommandation">
+                            <MudTooltip Text="@context.StatutIAActionTexte" Placement="Placement.Top" Arrow="true" Disabled="@string.IsNullOrEmpty(context.StatutIAActionTexte)">
+                                <div class="d-flex flex-column gap-1" style="cursor: pointer;">
+                                    <span class="ia-badge ia-badge--@context.StatutIAType.ToLower()">
+                                        @context.StatutIABadgeText
+                                    </span>
+                                    @if (!string.IsNullOrEmpty(context.StatutIAActionTexte))
+                                    {
+                                        <span class="ia-action-subtext">
+                                            <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Size="Size.Small" Style="font-size: 0.75rem; vertical-align: middle; margin-right: 3px; color: #6366F1;" />
+                                            @context.StatutIAActionTexte
+                                        </span>
+                                    }
+                                </div>
+                            </MudTooltip>
+                        </MudTd>
+                        <MudTd DataLabel="Cycle de vie">@context.CycleDeVie</MudTd>
+                        <AuthorizeView Roles="RESPONSABLE_STOCK_PRODUCTION,ADMIN" Context="authContext">
+                            <Authorized>
+                                <MudTd Style="text-align: right;">
+                                    <div class="d-flex justify-end gap-1">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Class="action-btn" href="@($"/produits/modifier/{context.Id}")" />
+                                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Class="action-btn action-btn--danger" OnClick="() => Supprimer(context.Id)" />
+                                    </div>
+                                </MudTd>
+                            </Authorized>
+                        </AuthorizeView>
+                    </RowTemplate>
+                </MudTable>
+            </div>
+        }
+    </MudStack>
+</div>
+
+<style>
+    .produits-page {
+        --ink: #16233A;
+        --ink-muted: #64748B;
+        --paper: #FFFFFF;
+        --sand: #F3F6FA;
+        --border: #E1E7EF;
+        --denim: #2B4C7E;
+        --denim-dark: #14263F;
+        --denim-tint: #E7EDF6;
+        --rust: #A23B2E;
+        --rust-tint: #F7E9E6;
+        --radius-sm: 8px;
+        --radius-lg: 14px;
+        --font-display: "Sora", "Inter", sans-serif;
+        --font-body: "Inter", sans-serif;
+        --font-mono: "JetBrains Mono", monospace;
+        font-family: var(--font-body);
+        color: var(--ink);
+    }
+
+        .produits-page .page-title {
+            font-family: var(--font-display);
+            font-weight: 700;
+            color: var(--ink);
+            letter-spacing: -0.02em;
+        }
+
+        .produits-page .count-badge {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--denim);
+            background: var(--denim-tint);
+            padding: 4px 10px;
+            border-radius: var(--radius-sm);
+        }
+
+    .view-toggle {
+        display: flex;
+        gap: 2px;
+        padding: 3px;
+        background: var(--sand);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+    }
+
+    .view-toggle-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        border: none;
+        background: transparent;
+        border-radius: 6px;
+        color: var(--ink-muted);
+        cursor: pointer;
+        transition: background 0.15s ease, color 0.15s ease;
+    }
+
+        .view-toggle-btn.active {
+            background: var(--paper);
+            color: var(--denim);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+        }
+
+    .produits-page .btn {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border: none;
+        border-radius: var(--radius-sm);
+        padding: 9px 18px;
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: 0.875rem;
+        cursor: pointer;
+        transition: background 0.15s ease;
+    }
+
+    .produits-page .btn--primary {
+        background: var(--denim);
+        color: #fff;
+        box-shadow: 0 6px 16px -6px rgba(43,76,126,0.4);
+    }
+
+        .produits-page .btn--primary:hover {
+            background: var(--denim-dark);
+        }
+
+    .btn--outline {
+        background: transparent;
+        border: 1px solid var(--border) !important;
+        color: var(--ink);
+    }
+
+        .btn--outline:hover {
+            background: var(--sand);
+        }
+
+    .filter-panel {
+        background: var(--paper);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        padding: 16px;
+    }
+
+    .filter-chip {
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: 0.8125rem;
+        padding: 6px 14px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--paper);
+        color: var(--ink-muted);
+        cursor: pointer;
+        white-space: nowrap;
+        transition: all 0.15s ease;
+    }
+
+        .filter-chip:hover {
+            border-color: var(--denim);
+            color: var(--ink);
+        }
+
+        .filter-chip.active {
+            background: var(--chip-color, var(--denim));
+            border-color: var(--chip-color, var(--denim));
+            color: #fff;
+        }
+
+    .badge-ia-overlay {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 2;
+    }
+
+    .ia-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-family: var(--font-body);
+        font-size: 0.725rem;
+        font-weight: 700;
+        padding: 4px 10px;
+        border-radius: 999px;
+        white-space: nowrap;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        transition: transform 0.15s ease;
+    }
+
+        .ia-badge:hover {
+            transform: translateY(-1px);
+        }
+
+    .ia-badge--rupture {
+        background: #FEE2E2;
+        color: #991B1B;
+        border: 1px solid #FCA5A5;
+    }
+
+    .ia-badge--surstock {
+        background: #FFEDD5;
+        color: #9A3412;
+        border: 1px solid #FDBA74;
+    }
+
+    .ia-badge--optimal {
+        background: #DCFCE7;
+        color: #166534;
+        border: 1px solid #86EFAC;
+    }
+
+    .ia-action-pill {
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        background: #F8FAFC;
+        border: 1px solid #E2E8F0;
+        border-left: 3px solid #6366F1;
+        border-radius: 6px;
+        padding: 6px 10px;
+    }
+
+    .ia-pill-icon {
+        color: #6366F1;
+        flex-shrink: 0;
+        margin-top: 1px;
+    }
+
+    .ia-pill-text {
+        font-size: 0.71875rem;
+        line-height: 1.35;
+        color: #334155;
+        font-weight: 500;
+    }
+
+    .ia-action-subtext {
+        font-size: 0.71875rem;
+        color: #64748B;
+        max-width: 250px;
+        white-space: normal;
+        line-height: 1.25;
+        display: block;
+    }
+
+    .skeleton-card {
+        background: var(--paper);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+    }
+
+    .empty-state {
+        background: var(--paper);
+        border: 1px dashed var(--border);
+        border-radius: var(--radius-lg);
+        padding: 64px 24px;
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .empty-icon {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        background: var(--sand);
+        color: var(--ink-muted);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 12px;
+    }
+
+    .empty-title {
+        font-family: var(--font-display);
+        font-weight: 600;
+        color: var(--ink);
+    }
+
+    .empty-subtitle {
+        color: var(--ink-muted);
+    }
+
+    .product-card {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        background: var(--paper);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    }
+
+        .product-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 24px -12px rgba(20,38,63,0.25);
+            border-color: transparent;
+        }
+
+    .swatch-strip {
+        height: 4px;
+        width: 100%;
+    }
+
+    .product-image {
+        position: relative;
+        width: 100%;
+        height: 176px;
+        background: var(--sand);
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .card-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: transform 0.3s ease;
+    }
+
+    .product-card:hover .card-img {
+        transform: scale(1.04);
+    }
+
+    .badge-ref {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        font-weight: 600;
+        letter-spacing: 0.03em;
+        background: rgba(22,35,58,0.88);
+        color: #fff;
+        padding: 3px 9px;
+        border-radius: var(--radius-sm);
+    }
+
+    .product-body {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 16px;
+    }
+
+    .product-name {
+        font-family: var(--font-display);
+        font-weight: 600;
+        color: var(--ink);
+        line-height: 1.3;
+    }
+
+    .product-detail {
+        color: var(--ink-muted);
+        font-weight: 500;
+    }
+
+    .text-muted {
+        color: var(--ink-muted);
+    }
+
+    .product-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-top: 12px;
+        border-top: 1px solid var(--border);
+    }
+
+    .action-btn {
+        color: var(--ink-muted) !important;
+    }
+
+        .action-btn:hover {
+            color: var(--denim) !important;
+            background: var(--denim-tint) !important;
+        }
+
+    .action-btn--danger:hover {
+        color: var(--rust) !important;
+        background: var(--rust-tint) !important;
+    }
+
+    .table-panel {
+        background: var(--paper);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+    }
+
+    .products-table .mud-table-head th {
+        font-family: var(--font-body);
+        font-weight: 700;
+        color: var(--ink-muted);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        background: var(--sand);
+    }
+
+    .cell-name {
+        font-family: var(--font-display);
+        font-weight: 600;
+        color: var(--ink);
+    }
+
+    .ref-code {
+        font-family: var(--font-mono);
+        font-weight: 600;
+        font-size: 0.8125rem;
+        color: var(--denim);
+        background: var(--denim-tint);
+        padding: 3px 8px;
+        border-radius: 6px;
+    }
+
+    .table-cat-tag {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #fff;
+        padding: 3px 9px;
+        border-radius: 6px;
+    }
+
+    .stock-qty-badge {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 3px 8px;
+        border-radius: 6px;
+    }
+
+    .stock-qty-ok {
+        background: #F1F5F9;
+        color: #334155;
+    }
+
+    .stock-qty-zero {
+        background: #FEF2F2;
+        color: #DC2626;
+        border: 1px solid #FCA5A5;
+    }
+
+    .table-thumb {
+        border-radius: 8px;
+        object-fit: cover;
+    }
+
+    .table-thumb--empty {
+        width: 40px;
+        height: 40px;
+        border-radius: 8px;
+        background: var(--sand);
+        display: flex;
+        justify-content: center;
+    }
+</style>
+
+@code {
+    private List<ProduitDto>? produits;
+    private List<CommandeManagerDto>? commandesClients;
+    private string searchString = "";
+    private string categoryFilter = "";
+    private string statutIaFilter = ""; // "", "RUPTURE", "SURSTOCK", "OPTIMAL"
+    private string sortBy = "STATUT_IA"; // "STATUT_IA", "NOM", "STOCK_ASC", "STOCK_DESC"
+    private bool isGridView = true;
+
+    // Palette "échantillon tissu"
+    private static readonly string[] SwatchPalette = new[]
+    {
+        "#2B4C7E", // denim
+        "#B5563A", // clay
+        "#B8842C", // ochre
+        "#4A6FA5", // steel blue
+        "#7C4A6E"  // plum
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ChargerDonnees();
+    }
+
+    private async Task ChargerDonnees()
+    {
+        try
+        {
+            produits = await ProduitService.ObtenirTous();
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            Navigation.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+        catch
+        {
+            produits = new List<ProduitDto>();
+        }
+
+        try
+        {
+            commandesClients = await CatalogueService.ObtenirToutesLesCommandes();
+        }
+        catch
+        {
+            commandesClients = new List<CommandeManagerDto>();
+        }
+    }
+
+    private static readonly List<string> CategoriesParDefaut = new()
+    {
+        "Jacket", "Pants", "Set", "Shirt", "Shorts", "Dress", "Coat", "Skirt"
+    };
+
+    private IEnumerable<string> CategoriesDisponibles
+    {
+        get
+        {
+            var list = new List<string>(CategoriesParDefaut);
+            if (produits != null)
+            {
+                foreach (var cat in produits.Select(p => p.Categorie).Where(c => !string.IsNullOrWhiteSpace(c)))
+                {
+                    if (!list.Contains(cat, StringComparer.OrdinalIgnoreCase))
+                    {
+                        list.Add(cat!);
+                    }
+                }
+            }
+            return list.Distinct().OrderBy(c => c);
+        }
+    }
+
+    private IEnumerable<ProduitDto> FilteredProduits
+    {
+        get
+        {
+            if (produits == null) return Enumerable.Empty<ProduitDto>();
+
+            var list = produits.Where(p => FilterFunc(p));
+
+            if (!string.IsNullOrEmpty(statutIaFilter))
+            {
+                list = list.Where(p => string.Equals(p.StatutIAType, statutIaFilter, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return sortBy switch
+            {
+                "STATUT_IA" => list.OrderBy(p => p.StatutIAPriorite).ThenBy(p => p.Stock?.QuantiteActuelle ?? 0),
+                "NOM" => list.OrderBy(p => p.Nom),
+                "STOCK_ASC" => list.OrderBy(p => p.Stock?.QuantiteActuelle ?? 0),
+                "STOCK_DESC" => list.OrderByDescending(p => p.Stock?.QuantiteActuelle ?? 0),
+                _ => list.OrderBy(p => p.StatutIAPriorite)
+            };
+        }
+    }
+
+    private bool FilterFunc(ProduitDto p)
+    {
+        if (!string.IsNullOrEmpty(categoryFilter) && !string.Equals(p.Categorie, categoryFilter, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (string.IsNullOrWhiteSpace(searchString))
+            return true;
+
+        if (p.Nom?.Contains(searchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (p.Reference?.Contains(searchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (p.TypeTissu?.Contains(searchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (p.Categorie?.Contains(searchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (p.StatutIABadgeText?.Contains(searchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+
+        return false;
+    }
+
+    private string GetStatutIaFilterLabel() => statutIaFilter switch
+    {
+        "RUPTURE" => "🔴 Ruptures",
+        "SURSTOCK" => "🟠 Surstock",
+        "OPTIMAL" => "🟢 Stock optimal",
+        _ => "Tous les statuts IA"
+    };
+
+    private string GetSortLabel() => sortBy switch
+    {
+        "STATUT_IA" => "Statut IA (Priorité)",
+        "NOM" => "Nom (A-Z)",
+        "STOCK_ASC" => "Stock (▲)",
+        "STOCK_DESC" => "Stock (▼)",
+        _ => "Trier par"
+    };
+
+    private string GetCategoryColor(string? categorie)
+    {
+        if (string.IsNullOrWhiteSpace(categorie))
+            return "#64748B";
+
+        int hash = 0;
+        foreach (var c in categorie) hash = (hash * 31 + c) & 0x7FFFFFFF;
+        return SwatchPalette[hash % SwatchPalette.Length];
+    }
+
+    private void AllerVersCreation() => Navigation.NavigateTo("/produits/creer");
+
+    private async Task Supprimer(int id)
+    {
+        var succes = await ProduitService.Supprimer(id);
+        if (succes)
+        {
+            produits = await ProduitService.ObtenirTous();
+        }
+    }
+
+    private string GetFullImageUrl(string? relativeUrl)
+    {
+        if (string.IsNullOrEmpty(relativeUrl)) return "";
+        return $"{Http.BaseAddress}{relativeUrl.TrimStart('/')}";
+    }
+
+    // ===== GESTION DE COMMANDES CLIENTS =====
+    private int NombreCommandesEnAttente => commandesClients == null
+        ? 0
+        : commandesClients.Count(c => c.StatutCommande == "EN_ATTENTE");
+}

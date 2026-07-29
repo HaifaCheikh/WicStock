@@ -1,0 +1,1092 @@
+@page "/catalogue"
+@using WicStock.Web.Models.Dtos
+@using WicStock.Web.Services
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = "CLIENT,ADMIN")]
+@inject CatalogueService CatalogueService
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+@inject HttpClient Http
+
+<HeadContent>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+</HeadContent>
+
+<div class="catalogue-page">
+    <MudStack Spacing="6">
+
+        <!-- ===== EN-TÊTE ===== -->
+        <div class="d-flex justify-space-between align-center flex-wrap gap-4">
+            <div>
+                <div class="d-flex align-center gap-3">
+                    <MudText Typo="Typo.h4" Class="page-title">Catalogue produits</MudText>
+                    @if (produits != null)
+                    {
+                        <span class="count-badge">@FilteredProduits.Count() articles</span>
+                    }
+                </div>
+                <MudText Typo="Typo.body2" Class="page-subtitle mt-1">
+                    Consultez nos références de tissus et passez vos commandes en ligne
+                </MudText>
+            </div>
+
+            <!-- Bouton Mes commandes -->
+            <button class="btn btn--outline" @onclick="() => showCommandes = !showCommandes">
+                <MudIcon Icon="@Icons.Material.Filled.ReceiptLong" Size="Size.Small" />
+                <span>@(showCommandes ? "Voir le catalogue" : "Mes commandes")</span>
+                @if (mesCommandes != null && mesCommandes.Count > 0 && !showCommandes)
+                {
+                    <span class="notif-badge">@mesCommandes.Count</span>
+                }
+            </button>
+        </div>
+
+        @if (!showCommandes)
+        {
+            <!-- ===== CATALOGUE ===== -->
+
+            <!-- Barre de recherche et filtres catégorie -->
+            <div class="filter-panel">
+                <div class="d-flex flex-column flex-md-row justify-space-between align-center gap-4">
+                    <div style="flex: 1; width: 100%;">
+                        <MudTextField @bind-Value="searchString"
+                                      Placeholder="Rechercher par référence, nom, type de tissu..."
+                                      Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Filled.Search"
+                                      IconSize="Size.Medium"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense"
+                                      Clearable="true"
+                                      Immediate="true"
+                                      Class="search-field" />
+                    </div>
+
+                    <!-- Menu déroulant Filtrer par catégorie -->
+                    <MudMenu EndIcon="@Icons.Material.Filled.KeyboardArrowDown"
+                             StartIcon="@Icons.Material.Filled.FilterList"
+                             Label="@(string.IsNullOrEmpty(categoryFilter) ? "Toutes les catégories" : categoryFilter)"
+                             Variant="Variant.Outlined"
+                             Color="@(string.IsNullOrEmpty(categoryFilter) ? Color.Default : Color.Primary)"
+                             Style="border-radius: 10px; font-weight: 600; text-transform: none; height: 40px;"
+                             AnchorOrigin="Origin.BottomRight"
+                             TransformOrigin="Origin.TopRight">
+                        <MudMenuItem OnClick='() => categoryFilter = ""'>
+                            <div class="d-flex align-center gap-2">
+                                <MudIcon Icon="@Icons.Material.Filled.Apps" Size="Size.Small" Style="color: #2B4C7E;" />
+                                <span style="@(string.IsNullOrEmpty(categoryFilter) ? "font-weight:700; color:#2B4C7E;" : "font-weight:500;")">Toutes les catégories</span>
+                            </div>
+                        </MudMenuItem>
+                        <MudDivider />
+                        @foreach (var cat in CategoriesDisponibles)
+                        {
+                            var isSelected = categoryFilter == cat;
+                            <MudMenuItem OnClick="() => categoryFilter = cat">
+                                <div class="d-flex align-center gap-2">
+                                    <span style="width: 8px; height: 8px; border-radius: 50%; display: inline-block; background-color: @GetCategoryColor(cat);"></span>
+                                    <span style="@(isSelected ? "font-weight:700; color:#2B4C7E;" : "font-weight:500;")">@cat</span>
+                                </div>
+                            </MudMenuItem>
+                        }
+                    </MudMenu>
+                </div>
+            </div>
+
+            <!-- Grille des produits -->
+            @if (produits == null)
+            {
+                <MudGrid Spacing="3">
+                    @for (int i = 0; i < 8; i++)
+                    {
+                        <MudItem xs="12" sm="6" md="3">
+                            <div class="skeleton-card">
+                                <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="176px" />
+                                <div class="pa-4 d-flex flex-column gap-2">
+                                    <MudSkeleton Width="70%" Height="20px" />
+                                    <MudSkeleton Width="50%" Height="16px" />
+                                </div>
+                            </div>
+                        </MudItem>
+                    }
+                </MudGrid>
+            }
+            else if (!FilteredProduits.Any())
+            {
+                <div class="empty-state">
+                    <div class="empty-icon">
+                        <MudIcon Icon="@Icons.Material.Filled.SearchOff" Size="Size.Large" />
+                    </div>
+                    <MudText Typo="Typo.h6" Class="empty-title mt-3">Aucun produit trouvé</MudText>
+                    <MudText Typo="Typo.body2" Class="empty-subtitle mt-1">Modifiez votre recherche ou vos filtres.</MudText>
+                </div>
+            }
+            else
+            {
+                <MudGrid Spacing="3">
+                    @foreach (var produit in FilteredProduits)
+                    {
+                        var swatch = GetCategoryColor(produit.Categorie);
+                        <MudItem xs="12" sm="6" md="3">
+                            <div class="product-card" @onclick="() => OuvrirDetails(produit)" style="cursor: pointer;">
+                                <div class="swatch-strip" style="background: @swatch;"></div>
+
+                                <!-- Image / Zone visuelle -->
+                                <div class="product-image">
+                                    @if (!string.IsNullOrEmpty(produit.ImageUrl))
+                                    {
+                                        <img src="@GetFullImageUrl(produit.ImageUrl)" alt="@produit.Nom" class="card-img" />
+                                    }
+                                    else
+                                    {
+                                        <MudIcon Icon="@Icons.Material.Filled.Layers" Style="font-size: 2.5rem; opacity: 0.25;" />
+                                    }
+                                    <span class="badge-ref">@produit.Reference</span>
+                                    @if (!string.IsNullOrEmpty(produit.Categorie))
+                                    {
+                                        <span class="badge-cat" style="background: @swatch;">@produit.Categorie</span>
+                                    }
+                                </div>
+
+                                <!-- Corps de la carte -->
+                                <div class="product-body">
+                                    <div>
+                                        <div class="product-name">@produit.Nom</div>
+                                        @if (!string.IsNullOrEmpty(produit.TypeTissu))
+                                        {
+                                            <div class="product-detail d-flex align-center gap-1 mt-1">
+                                                <MudIcon Icon="@Icons.Material.Filled.Texture" Size="Size.Small" />
+                                                <span>@produit.TypeTissu</span>
+                                            </div>
+                                        }
+                                    </div>
+
+                                    <!-- Action Prix & Commander -->
+                                    <div class="product-footer">
+                                        <div class="price-tag-badge">@produit.PrixUnitaire.ToString("0.00") DT</div>
+                                        <button class="btn-commander" @onclick:stopPropagation="true" @onclick="() => OuvrirCommande(produit)">
+                                            <MudIcon Icon="@Icons.Material.Filled.AddShoppingCart" Size="Size.Small" />
+                                            <span>Commander</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </MudItem>
+                    }
+                </MudGrid>
+            }
+        }
+        else
+        {
+            <!-- ===== MES COMMANDES ===== -->
+            <div>
+                @if (mesCommandes == null)
+                {
+                    <div class="d-flex justify-center my-8">
+                        <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+                    </div>
+                }
+                else if (!mesCommandes.Any())
+                {
+                    <div class="empty-state">
+                        <div class="empty-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.ReceiptLong" Size="Size.Large" />
+                        </div>
+                        <MudText Typo="Typo.h6" Class="empty-title mt-3">Aucune commande passée</MudText>
+                        <MudText Typo="Typo.body2" Class="empty-subtitle mt-1">Parcourez le catalogue pour passer votre première commande.</MudText>
+                        <button class="btn btn--primary mt-4" @onclick="() => showCommandes = false">
+                            <MudIcon Icon="@Icons.Material.Filled.Storefront" Size="Size.Small" />
+                            <span>Voir le catalogue</span>
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <div class="table-panel">
+                        <MudTable Items="@mesCommandes" Hover="true" Elevation="0" Class="commandes-table">
+                            <HeaderContent>
+                                <MudTh>Produit</MudTh>
+                                <MudTh>Référence</MudTh>
+                                <MudTh>Catégorie</MudTh>
+                                <MudTh>Qté</MudTh>
+                                <MudTh>Prix/u</MudTh>
+                                <MudTh>Total</MudTh>
+                                <MudTh>Statut</MudTh>
+                                <MudTh>Date</MudTh>
+                                <MudTh Style="text-align:right;">Action</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Produit" Class="cell-name">@context.ProduitNom</MudTd>
+                                <MudTd DataLabel="Référence">
+                                    <span class="ref-code">@context.ProduitReference</span>
+                                </MudTd>
+                                <MudTd DataLabel="Catégorie">
+                                    @if (!string.IsNullOrEmpty(context.ProduitCategorie))
+                                    {
+                                        <span class="table-cat-tag" style="background: @GetCategoryColor(context.ProduitCategorie);">
+                                            @context.ProduitCategorie
+                                        </span>
+                                    }
+                                </MudTd>
+                                <MudTd DataLabel="Qté" Style="font-weight: 600;">@context.QuantiteVendue</MudTd>
+                                <MudTd DataLabel="Prix/u">@context.PrixUnitaire.ToString("0.00") DT</MudTd>
+                                <MudTd DataLabel="Total" Style="font-weight: 700; color: #2B4C7E;">@context.TotalCommande.ToString("0.00") DT</MudTd>
+                                <MudTd DataLabel="Statut">
+                                    <span class="badge-statut @GetStatutCssClass(context.StatutCommande)">
+                                        @GetStatutLabel(context.StatutCommande)
+                                    </span>
+                                </MudTd>
+                                <MudTd DataLabel="Date">@context.DateVente.ToString("dd/MM/yyyy HH:mm")</MudTd>
+                                <MudTd Style="text-align:right;">
+                                    <button class="btn-annuler" @onclick="() => DemanderAnnulation(context)">
+                                        <MudIcon Icon="@Icons.Material.Filled.Cancel" Size="Size.Small" />
+                                        <span>Annuler</span>
+                                    </button>
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    </div>
+                }
+            </div>
+        }
+
+    </MudStack>
+</div>
+
+<!-- ===== DIALOG CONFIRMATION ANNULATION ===== -->
+@if (commandeAnnuler != null)
+{
+    <div class="dialog-overlay" @onclick="FermerAnnulation">
+        <div class="dialog-card dialog-card--sm" @onclick:stopPropagation="true">
+            <div class="dialog-header">
+                <div>
+                    <div class="dialog-title" style="color: #dc2626;">Annuler la commande ?</div>
+                    <div class="dialog-subtitle">Cette action est irréversible.</div>
+                </div>
+                <button class="dialog-close" @onclick="FermerAnnulation">
+                    <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Small" />
+                </button>
+            </div>
+            <div class="dialog-body">
+                <div class="annulation-recap">
+                    <div class="annulation-row">
+                        <span class="annulation-label">Produit</span>
+                        <span class="annulation-value">@commandeAnnuler.ProduitNom</span>
+                    </div>
+                    <div class="annulation-row">
+                        <span class="annulation-label">Référence</span>
+                        <span class="ref-code">@commandeAnnuler.ProduitReference</span>
+                    </div>
+                    <div class="annulation-row">
+                        <span class="annulation-label">Quantité</span>
+                        <span class="annulation-value">@commandeAnnuler.QuantiteVendue</span>
+                    </div>
+                    <div class="annulation-row">
+                        <span class="annulation-label">Total</span>
+                        <span class="annulation-value" style="font-weight:700; color:#2B4C7E;">@commandeAnnuler.TotalCommande.ToString("0.00") DT</span>
+                    </div>
+                    <div class="annulation-row">
+                        <span class="annulation-label">Date</span>
+                        <span class="annulation-value">@commandeAnnuler.DateVente.ToString("dd/MM/yyyy HH:mm")</span>
+                    </div>
+                </div>
+            </div>
+            <div class="dialog-footer">
+                <button class="btn btn--outline" @onclick="FermerAnnulation">Conserver</button>
+                <button class="btn btn--danger" @onclick="ConfirmerAnnulation" disabled="@annulationEnCours">
+                    @if (annulationEnCours)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Inherit" />
+                    }
+                    else
+                    {
+                        <MudIcon Icon="@Icons.Material.Filled.Cancel" Size="Size.Small" />
+                    }
+                    <span>Confirmer l'annulation</span>
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ===== DIALOG DÉTAILS PRODUIT CLIENT ===== -->
+@if (produitDetailsModal != null)
+{
+    <div class="dialog-overlay" @onclick="FermerDetails">
+        <div class="dialog-card dialog-card--md" @onclick:stopPropagation="true">
+            <div class="dialog-header">
+                <div>
+                    <div class="dialog-title">Détails du produit</div>
+                    <div class="dialog-subtitle">Fiche technique et prix</div>
+                </div>
+                <button class="dialog-close" @onclick="FermerDetails">
+                    <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Small" />
+                </button>
+            </div>
+            <div class="dialog-body">
+                <div class="d-flex flex-column flex-sm-row gap-4 align-center">
+                    <div class="modal-img-wrap" style="width: 160px; height: 160px; border-radius: 12px; overflow: hidden; background: #F3F6FA; flex-shrink: 0; display: flex; align-items: center; justify-content: center;">
+                        @if (!string.IsNullOrEmpty(produitDetailsModal.ImageUrl))
+                        {
+                            <img src="@GetFullImageUrl(produitDetailsModal.ImageUrl)" alt="@produitDetailsModal.Nom" style="width: 100%; height: 100%; object-fit: cover;" />
+                        }
+                        else
+                        {
+                            <MudIcon Icon="@Icons.Material.Filled.Layers" Style="font-size: 3rem; opacity: 0.3;" />
+                        }
+                    </div>
+                    <div style="flex: 1; width: 100%;">
+                        <div class="d-flex align-center gap-2 mb-2 flex-wrap">
+                            <span class="ref-code">@produitDetailsModal.Reference</span>
+                            @if (!string.IsNullOrEmpty(produitDetailsModal.Categorie))
+                            {
+                                <span class="table-cat-tag" style="background: @GetCategoryColor(produitDetailsModal.Categorie)">@produitDetailsModal.Categorie</span>
+                            }
+                        </div>
+                        <h3 style="font-family: var(--font-display); font-weight: 700; font-size: 1.25rem; color: #16233A; margin: 0 0 8px 0;">@produitDetailsModal.Nom</h3>
+                        
+                        @if (!string.IsNullOrEmpty(produitDetailsModal.TypeTissu))
+                        {
+                            <div class="d-flex align-center gap-2 text-muted mb-3" style="font-size: 0.875rem;">
+                                <MudIcon Icon="@Icons.Material.Filled.Texture" Size="Size.Small" />
+                                <span>Type / Tissu : <strong>@produitDetailsModal.TypeTissu</strong></span>
+                            </div>
+                        }
+
+                        <div class="price-hero-box" style="background: #E7EDF6; padding: 12px 16px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 0.8125rem; font-weight: 600; text-transform: uppercase; color: #64748B;">Prix Unitaire</span>
+                            <span style="font-family: var(--font-display); font-weight: 700; font-size: 1.375rem; color: #2B4C7E;">@produitDetailsModal.PrixUnitaire.ToString("0.00") DT</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="dialog-footer">
+                <button class="btn btn--outline" @onclick="FermerDetails">Fermer</button>
+                <button class="btn btn--primary" @onclick="() => { var p = produitDetailsModal; FermerDetails(); OuvrirCommande(p!); }">
+                    <MudIcon Icon="@Icons.Material.Filled.AddShoppingCart" Size="Size.Small" />
+                    <span>Commander cet article</span>
+                </button>
+            </div>
+        </div>
+    </div>
+}
+@if (produitSelectionne != null)
+{
+    <div class="dialog-overlay" @onclick="FermerCommande">
+        <div class="dialog-card" @onclick:stopPropagation="true">
+            <div class="dialog-header">
+                <div>
+                    <div class="dialog-title">Passer une commande</div>
+                    <div class="dialog-subtitle">@produitSelectionne.Nom</div>
+                </div>
+                <button class="dialog-close" @onclick="FermerCommande">
+                    <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Small" />
+                </button>
+            </div>
+
+            <div class="dialog-body">
+                <!-- Résumé produit -->
+                <div class="order-summary-product">
+                    <span class="ref-code">@produitSelectionne.Reference</span>
+                    @if (!string.IsNullOrEmpty(produitSelectionne.Categorie))
+                    {
+                        <span class="table-cat-tag" style="background: @GetCategoryColor(produitSelectionne.Categorie); margin-left: 8px;">
+                            @produitSelectionne.Categorie
+                        </span>
+                    }
+                </div>
+
+                <!-- Quantité -->
+                <div class="dialog-field">
+                    <label class="field-label">Quantité (articles)</label>
+                    <input type="number" class="field-input" min="1" @bind="commandeQuantite" placeholder="ex : 5" />
+                </div>
+
+                <!-- Prix unitaire -->
+                <div class="dialog-field">
+                    <label class="field-label">Prix unitaire (DT)</label>
+                    <input type="number" class="field-input" readonly @bind="commandePrix" style="background:#F8FAFC; color:#64748B; cursor:not-allowed;" />
+                </div>
+
+                <!-- Récapitulatif -->
+                @if (commandeQuantite > 0 && commandePrix > 0)
+                {
+                    <div class="order-total">
+                        <span>Total estimé</span>
+                        <strong>@((commandeQuantite * commandePrix).ToString("0.00")) DT</strong>
+                    </div>
+                }
+            </div>
+
+            <div class="dialog-footer">
+                <button class="btn btn--outline" @onclick="FermerCommande">Annuler</button>
+                <button class="btn btn--primary" @onclick="ConfirmerCommande" disabled="@commandeEnCours">
+                    @if (commandeEnCours)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Inherit" />
+                    }
+                    else
+                    {
+                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" />
+                    }
+                    <span>Confirmer la commande</span>
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .catalogue-page {
+        --ink: #16233A;
+        --ink-muted: #64748B;
+        --paper: #FFFFFF;
+        --sand: #F3F6FA;
+        --border: #E1E7EF;
+        --denim: #2B4C7E;
+        --denim-dark: #14263F;
+        --denim-tint: #E7EDF6;
+        --rust: #A23B2E;
+        --rust-tint: #F7E9E6;
+        --radius-sm: 8px;
+        --radius-lg: 14px;
+        --font-display: "Sora", "Inter", sans-serif;
+        --font-body: "Inter", sans-serif;
+        --font-mono: "JetBrains Mono", monospace;
+        font-family: var(--font-body);
+        color: var(--ink);
+    }
+
+    .catalogue-page .page-title {
+        font-family: var(--font-display);
+        font-weight: 700;
+        color: var(--ink);
+        letter-spacing: -0.02em;
+    }
+
+    .catalogue-page .page-subtitle { color: var(--ink-muted); }
+
+    .catalogue-page .count-badge {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--denim);
+        background: var(--denim-tint);
+        padding: 4px 10px;
+        border-radius: var(--radius-sm);
+    }
+
+    /* ===== Boutons ===== */
+    .catalogue-page .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: none;
+        border-radius: var(--radius-sm);
+        padding: 9px 18px;
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: 0.875rem;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        position: relative;
+    }
+
+    .catalogue-page .btn--primary {
+        background: var(--denim);
+        color: #fff;
+        box-shadow: 0 6px 16px -6px rgba(43,76,126,0.4);
+    }
+
+        .catalogue-page .btn--primary:hover { background: var(--denim-dark); }
+        .catalogue-page .btn--primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .catalogue-page .btn--outline {
+        background: var(--paper);
+        color: var(--ink);
+        border: 1px solid var(--border);
+    }
+
+        .catalogue-page .btn--outline:hover { border-color: var(--denim); color: var(--denim); }
+
+    .notif-badge {
+        position: absolute;
+        top: -6px;
+        right: -6px;
+        background: var(--denim);
+        color: #fff;
+        font-size: 0.6875rem;
+        font-weight: 700;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* ===== Filtre panel ===== */
+    .filter-panel {
+        background: var(--paper);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        padding: 16px;
+    }
+
+    .filter-chip {
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: 0.8125rem;
+        padding: 6px 14px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--paper);
+        color: var(--ink-muted);
+        cursor: pointer;
+        white-space: nowrap;
+        transition: all 0.15s ease;
+    }
+
+        .filter-chip:hover { border-color: var(--denim); color: var(--ink); }
+
+        .filter-chip.active {
+            background: var(--chip-color, var(--denim));
+            border-color: var(--chip-color, var(--denim));
+            color: #fff;
+        }
+
+    /* ===== Skeleton ===== */
+    .skeleton-card {
+        background: var(--paper);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+    }
+
+    /* ===== Empty state ===== */
+    .empty-state {
+        background: var(--paper);
+        border: 1px dashed var(--border);
+        border-radius: var(--radius-lg);
+        padding: 64px 24px;
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .empty-icon {
+        width: 64px; height: 64px;
+        border-radius: 50%;
+        background: var(--sand);
+        color: var(--ink-muted);
+        display: flex; align-items: center; justify-content: center;
+        margin-bottom: 12px;
+    }
+
+    .empty-title { font-family: var(--font-display); font-weight: 600; color: var(--ink); }
+    .empty-subtitle { color: var(--ink-muted); }
+
+    /* ===== Carte produit ===== */
+    .product-card {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        background: var(--paper);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    }
+
+        .product-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 24px -12px rgba(20,38,63,0.25);
+            border-color: transparent;
+        }
+
+    .swatch-strip { height: 4px; width: 100%; }
+
+    .product-image {
+        position: relative;
+        width: 100%;
+        height: 176px;
+        background: var(--sand);
+        overflow: hidden;
+        display: flex; align-items: center; justify-content: center;
+    }
+
+    .card-img {
+        width: 100%; height: 100%;
+        object-fit: cover;
+        transition: transform 0.3s ease;
+    }
+
+    .product-card:hover .card-img { transform: scale(1.04); }
+
+    .badge-ref {
+        position: absolute; top: 10px; left: 10px;
+        font-family: var(--font-mono);
+        font-size: 0.6875rem; font-weight: 600;
+        background: rgba(22,35,58,0.88); color: #fff;
+        padding: 3px 9px;
+        border-radius: var(--radius-sm);
+    }
+
+    .badge-cat {
+        position: absolute; top: 10px; right: 10px;
+        font-size: 0.6875rem; font-weight: 600; color: #fff;
+        padding: 3px 9px;
+        border-radius: var(--radius-sm);
+    }
+
+    .product-body {
+        flex: 1;
+        display: flex; flex-direction: column;
+        justify-content: space-between;
+        gap: 12px; padding: 16px;
+    }
+
+    .product-name {
+        font-family: var(--font-display);
+        font-weight: 600; color: var(--ink); line-height: 1.3;
+    }
+
+    .product-detail { color: var(--ink-muted); font-weight: 500; font-size: 0.875rem; }
+
+    .product-footer {
+        padding-top: 12px;
+        border-top: 1px solid var(--border);
+    }
+
+    .btn-commander {
+        display: flex; align-items: center; gap: 6px;
+        width: 100%;
+        padding: 8px 14px;
+        border: none;
+        border-radius: var(--radius-sm);
+        background: var(--denim);
+        color: #fff;
+        font-family: var(--font-body);
+        font-weight: 600; font-size: 0.875rem;
+        cursor: pointer;
+        transition: background 0.15s ease;
+        justify-content: center;
+    }
+
+        .btn-commander:hover { background: var(--denim-dark); }
+
+        /* Price tag badge */
+    .price-tag-badge {
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 0.9375rem;
+        color: var(--denim);
+    }
+
+    /* ===== Table commandes ===== */
+    .table-panel {
+        background: var(--paper);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+    }
+
+    .commandes-table .mud-table-head th {
+        font-family: var(--font-body);
+        font-weight: 700; color: var(--ink-muted);
+        font-size: 0.75rem; text-transform: uppercase;
+        letter-spacing: 0.04em;
+        background: var(--sand);
+    }
+
+    .cell-name { font-family: var(--font-display); font-weight: 600; color: var(--ink); }
+
+    .ref-code {
+        font-family: var(--font-mono); font-weight: 600; font-size: 0.8125rem;
+        color: var(--denim); background: var(--denim-tint);
+        padding: 3px 8px; border-radius: 6px;
+    }
+
+    .table-cat-tag {
+        font-size: 0.75rem; font-weight: 600;
+        color: #fff; padding: 3px 9px; border-radius: 6px;
+    }
+
+    /* ===== Bouton Annuler commande ===== */
+    .btn-annuler {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        border: 1px solid #fca5a5;
+        border-radius: var(--radius-sm);
+        background: #fff5f5;
+        color: #dc2626;
+        font-family: var(--font-body);
+        font-size: 0.8125rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        white-space: nowrap;
+    }
+
+        .btn-annuler:hover {
+            background: #fee2e2;
+            border-color: #f87171;
+        }
+
+    /* ===== Bouton danger (dans dialog) ===== */
+    .catalogue-page .btn--danger {
+        background: #dc2626;
+        color: #fff;
+        border: none;
+        box-shadow: 0 4px 12px -4px rgba(220, 38, 38, 0.4);
+    }
+
+        .catalogue-page .btn--danger:hover { background: #b91c1c; }
+        .catalogue-page .btn--danger:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    /* ===== Dialog compact (annulation) ===== */
+    .dialog-card--sm { max-width: 400px; }
+
+    .annulation-recap {
+        background: var(--sand);
+        border-radius: var(--radius-sm);
+        padding: 12px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .annulation-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+    }
+
+    .annulation-label {
+        font-size: 0.8125rem;
+        font-weight: 500;
+        color: var(--ink-muted);
+        min-width: 80px;
+    }
+
+    .annulation-value {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--ink);
+        text-align: right;
+    }
+
+    /* ===== Badges de statut ===== */
+    .badge-statut {
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 4px 10px;
+        border-radius: 6px;
+        display: inline-block;
+        white-space: nowrap;
+    }
+    .statut-acceptee { background: #dcfce7; color: #15803d; }
+    .statut-attente { background: #fef3c7; color: #b45309; }
+    .statut-refusee { background: #fee2e2; color: #b91c1c; }
+
+    /* ===== Dialog Commander ===== */
+    .dialog-overlay {
+        position: fixed;
+        inset: 0;
+        background-color: rgba(15, 23, 42, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        animation: fadeIn 0.15s ease;
+    }
+
+    @@keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+
+    .dialog-card {
+        background-color: #ffffff !important;
+        background: #ffffff !important;
+        border-radius: 20px;
+        box-shadow: 0 8px 48px rgba(15,23,42,0.28), 0 2px 8px rgba(15,23,42,0.12);
+        width: 100%;
+        max-width: 460px;
+        margin: 16px;
+        position: relative;
+        z-index: 10000;
+        animation: slideUp 0.2s ease;
+    }
+
+    @@keyframes slideUp {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .dialog-header {
+        display: flex; align-items: flex-start; justify-content: space-between;
+        padding: 24px 24px 16px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .dialog-title {
+        font-family: var(--font-display);
+        font-weight: 700; font-size: 1.125rem; color: var(--ink);
+    }
+
+    .dialog-subtitle { font-size: 0.875rem; color: var(--ink-muted); margin-top: 2px; }
+
+    .dialog-close {
+        width: 32px; height: 32px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--paper);
+        color: var(--ink-muted);
+        cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+        transition: all 0.15s ease;
+        flex-shrink: 0;
+    }
+
+        .dialog-close:hover { background: var(--sand); color: var(--ink); }
+
+    .dialog-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
+
+    .order-summary-product {
+        display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+        padding: 12px;
+        background: var(--sand);
+        border-radius: var(--radius-sm);
+    }
+
+    .dialog-field { display: flex; flex-direction: column; gap: 6px; }
+
+    .field-label {
+        font-size: 0.8125rem; font-weight: 600;
+        color: var(--ink-muted);
+    }
+
+    .field-input {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        font-family: var(--font-body);
+        font-size: 0.9375rem;
+        color: var(--ink);
+        background: var(--paper);
+        outline: none;
+        transition: border-color 0.15s ease;
+        box-sizing: border-box;
+    }
+
+        .field-input:focus { border-color: var(--denim); }
+
+    .order-total {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 12px 16px;
+        background: var(--denim-tint);
+        border-radius: var(--radius-sm);
+        font-size: 0.9375rem;
+        color: var(--denim);
+    }
+
+        .order-total strong { font-family: var(--font-display); font-size: 1.125rem; }
+
+    .dialog-footer {
+        display: flex; align-items: center; justify-content: flex-end; gap: 12px;
+        padding: 16px 24px;
+        border-top: 1px solid var(--border);
+    }
+</style>
+
+@code {
+    private List<CatalogueProduitDto>? produits;
+    private List<MaCommandeDto>? mesCommandes;
+    private string searchString = "";
+    private string categoryFilter = "";
+    private bool showCommandes = false;
+
+    // Dialog commande
+    private CatalogueProduitDto? produitSelectionne;
+    private int commandeQuantite = 1;
+    private decimal commandePrix = 0;
+    private bool commandeEnCours = false;
+
+    // Dialog annulation
+    private MaCommandeDto? commandeAnnuler;
+    private bool annulationEnCours = false;
+
+    // Palette couleurs catégories (cohérente avec la page produits)
+    private static readonly string[] SwatchPalette = new[]
+    {
+        "#2B4C7E", "#B5563A", "#B8842C", "#4A6FA5", "#7C4A6E"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.WhenAll(ChargerCatalogue(), ChargerMesCommandes());
+    }
+
+    private async Task ChargerCatalogue()
+    {
+        try { produits = await CatalogueService.ObtenirCatalogue(); }
+        catch { produits = new List<CatalogueProduitDto>(); }
+    }
+
+    private async Task ChargerMesCommandes()
+    {
+        try { mesCommandes = await CatalogueService.ObtenirMesCommandes(); }
+        catch { mesCommandes = new List<MaCommandeDto>(); }
+    }
+
+    private static readonly List<string> CategoriesParDefaut = new()
+    {
+        "Jacket", "Pants", "Set", "Shirt", "Shorts", "Dress", "Coat", "Skirt"
+    };
+
+    private IEnumerable<string> CategoriesDisponibles
+    {
+        get
+        {
+            var list = new List<string>(CategoriesParDefaut);
+            if (produits != null)
+            {
+                foreach (var cat in produits.Select(p => p.Categorie).Where(c => !string.IsNullOrWhiteSpace(c)))
+                {
+                    if (!list.Contains(cat, StringComparer.OrdinalIgnoreCase))
+                    {
+                        list.Add(cat!);
+                    }
+                }
+            }
+            return list.Distinct().OrderBy(c => c);
+        }
+    }
+
+    private IEnumerable<CatalogueProduitDto> FilteredProduits => produits == null
+        ? Enumerable.Empty<CatalogueProduitDto>()
+        : produits.Where(p => FilterFunc(p));
+
+    private bool FilterFunc(CatalogueProduitDto p)
+    {
+        if (!string.IsNullOrEmpty(categoryFilter) && !string.Equals(p.Categorie, categoryFilter, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (string.IsNullOrWhiteSpace(searchString)) return true;
+
+        if (p.Nom?.Contains(searchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (p.Reference?.Contains(searchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (p.TypeTissu?.Contains(searchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (p.Categorie?.Contains(searchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+
+        return false;
+    }
+
+    private string GetCategoryColor(string? categorie)
+    {
+        if (string.IsNullOrWhiteSpace(categorie)) return "#64748B";
+        int hash = 0;
+        foreach (var c in categorie) hash = (hash * 31 + c) & 0x7FFFFFFF;
+        return SwatchPalette[hash % SwatchPalette.Length];
+    }
+
+    private string GetFullImageUrl(string? relativeUrl)
+    {
+        if (string.IsNullOrEmpty(relativeUrl)) return "";
+        return $"{Http.BaseAddress}{relativeUrl.TrimStart('/')}";
+    }
+
+    private CatalogueProduitDto? produitDetailsModal;
+
+    private void OuvrirDetails(CatalogueProduitDto produit) => produitDetailsModal = produit;
+    private void FermerDetails() => produitDetailsModal = null;
+
+    private void OuvrirCommande(CatalogueProduitDto produit)
+    {
+        produitSelectionne = produit;
+        commandeQuantite = 1;
+        commandePrix = produit.PrixUnitaire;
+    }
+
+    private void FermerCommande() => produitSelectionne = null;
+
+    private async Task ConfirmerCommande()
+    {
+        if (produitSelectionne == null || commandeQuantite <= 0 || commandePrix <= 0)
+        {
+            Snackbar.Add("Veuillez remplir tous les champs correctement.", Severity.Warning);
+            return;
+        }
+
+        commandeEnCours = true;
+        var dto = new CommandeCreateDto
+        {
+            ProduitId = produitSelectionne.Id,
+            QuantiteVendue = commandeQuantite,
+            PrixUnitaire = commandePrix
+        };
+
+        var succes = await CatalogueService.PasserCommande(dto);
+        commandeEnCours = false;
+
+        if (succes)
+        {
+            Snackbar.Add($"Commande de {commandeQuantite} article(s) de « {produitSelectionne.Nom} » confirmée !", Severity.Success);
+            FermerCommande();
+            await ChargerMesCommandes();
+        }
+        else
+        {
+            Snackbar.Add("Erreur lors de la commande. Veuillez réessayer.", Severity.Error);
+        }
+    }
+
+    private string GetStatutCssClass(string? statut) => statut switch
+    {
+        "ACCEPTEE" => "statut-acceptee",
+        "EN_ATTENTE" => "statut-attente",
+        "REFUSEE" => "statut-refusee",
+        _ => "statut-attente"
+    };
+
+    private string GetStatutLabel(string? statut) => statut switch
+    {
+        "ACCEPTEE" => "Acceptée",
+        "EN_ATTENTE" => "En attente",
+        "REFUSEE" => "Refusée",
+        _ => statut ?? "En attente"
+    };
+
+    // ===== Annulation de commande =====
+    private void DemanderAnnulation(MaCommandeDto commande)
+    {
+        commandeAnnuler = commande;
+    }
+
+    private void FermerAnnulation() => commandeAnnuler = null;
+
+    private async Task ConfirmerAnnulation()
+    {
+        if (commandeAnnuler == null) return;
+
+        annulationEnCours = true;
+        var succes = await CatalogueService.AnnulerCommande(commandeAnnuler.Id);
+        annulationEnCours = false;
+
+        if (succes)
+        {
+            Snackbar.Add($"Commande de « {commandeAnnuler.ProduitNom} » annulée avec succès.", Severity.Success);
+            FermerAnnulation();
+            await ChargerMesCommandes();
+        }
+        else
+        {
+            Snackbar.Add("Impossible d'annuler cette commande. Veuillez réessayer.", Severity.Error);
+        }
+    }
+}
