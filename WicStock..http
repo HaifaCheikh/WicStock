@@ -1,0 +1,6 @@
+@WicStock__HostAddress = http://localhost:5145
+
+GET {{WicStock__HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

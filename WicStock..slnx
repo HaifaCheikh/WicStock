@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/whatsapp-service/">
+    <File Path="../whatsapp-service/index.js" />
+    <File Path="../whatsapp-service/package.json" />
+  </Folder>
+  <Project Path="../WicStock.Web/WicStock.Web.csproj" Id="ced5741f-0675-4003-97db-ab740843c3b8" />
+  <Project Path="WicStock..csproj" />
+</Solution>
