@@ -36,7 +36,7 @@ The project is built using **ASP.NET Core (.NET 8)** for the backend and **Blazo
 ### Clone the repository
 
 ```bash
-git clone https://github.com/your-username/WicStock.git
+git clone https://github.com/HaifaCheikh/WicStock
 ```
 
 ### Restore dependencies
