@@ -31,8 +31,6 @@ The project is built using **ASP.NET Core (.NET 8)** for the backend and **Blazo
 
 ---
 
----
-
 ## Installation
 
 ### Clone the repository
